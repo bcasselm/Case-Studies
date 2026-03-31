@@ -1,0 +1,25 @@
+# Python bytecode (compiled files)
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual Environments
+.casevenv/
+venv/
+.venv/
+env/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+
+# All of the data (as of yet)
+data/
+
+# All reports (as of yet)
+reports/
