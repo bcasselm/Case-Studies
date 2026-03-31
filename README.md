@@ -1,5 +1,5 @@
 # Repository For Our Project Within The UGhent Course "Case Studies in The Analysis of Experimental Data"
 
-This project will focus on representational similarity analysis of healthy and depressed human fMRI data and LLM-derived representations of the same stimuli. The goal is to understand how well LLMs can capture the representational structure of human brain activity in response to the same stimuli, and how this relates to representations in the brains of individuals with depression. We will use positively, negatively, and neutrally valenced stimuli to explore differences in representational similarity between healthy and depressed individuals, and how well LLMs can capture these differences. 
+This project will focus on representational similarity analysis of human fMRI data and LLM-derived representations of the same stimuli. We want to investigate whether negative bias, commonly observed in depression, is reflected in how meaning is structured in both the human brain and AI models. 
 
-Work in progress, subject to change. 
+Depression is known to involve a negative bias in cognition (e.g., stronger processing of negative information), but it is unclear whether this bias exists at the level of semantic representation itself.
