@@ -31,7 +31,6 @@ import pandas as pd
 from nilearn.glm.first_level import FirstLevelModel
 import nibabel as nib
 from bids import BIDSLayout
-import matplotlib.pyplot as plt
 
 #####################################################################
 # Configuration
@@ -44,7 +43,7 @@ MASK_PATH      = Path("/home/f_moldovan/projects/case_studies/data/brain_parcell
 # GLM parameters
 T_R            = BIDSLayout(BIDS_DIR).get_tr()          # repetition time in seconds (should be 2.0 for this dataset) - we read it from BIDS metadata to avoid hardcoding
 SLICE_TIME_REF = 0.5                                    # reference slice for slice-timing (0–1, fraction of TR; should be in the middle of TR according to fMRIPrep documentation)
-HRF_MODEL      = "glover"                               # 'spm', 'spm + derivative', 'glover', etc.
+HRF_MODEL      = "glover"                               # change this later to "glover"+ derivative + dispersion" for more flexible HRF modeling if needed (but beware of overfitting with only 672 trials), for now stick with canonical HRF to keep it simple
 DRIFT_MODEL    = "cosine"                               # high-pass filtering via discrete cosines
 HIGH_PASS      = 1/128                                  # Hz  (128 s period, SPM default)
 SMOOTHING_FWHM = 6                                      # mm (None = no smoothing)
@@ -53,6 +52,7 @@ MAX_RUNS       = 0                                      # 0 = use all runs, >0 =
 # Which fMRIPrep confounds to include
 CONFOUND_STRATEGY = ("motion", "wm_csf")
 MOTION_PARAMS     = "full"    # 'basic'=6, 'full'=24
+WM_CSF_PARAMS     = "basic"    # 'basic'=2, 'full'=8; change this to 'full' to include derivatives and squares of WM/CSF signals, but for now we stick with 'basic' to keep the model simpler 
 
 # Memory/performance controls
 N_JOBS           = 1
@@ -105,7 +105,13 @@ def get_run_files(subject: str):
                 ])
 
         if "wm_csf" in CONFOUND_STRATEGY:
-            selected.extend(["white_matter", "csf"])
+            if WM_CSF_PARAMS == "basic":
+                selected.extend(["white_matter", "csf"])
+            else:
+                selected.extend([
+                    "white_matter", "white_matter_derivative1", "white_matter_power2", "white_matter_derivative1_power2",
+                    "csf", "csf_derivative1", "csf_power2", "csf_derivative1_power2"
+                ])
 
         selected = [column for column in selected if column in confounds_df.columns]
         if not selected:
@@ -184,7 +190,7 @@ def fit_first_level(subject: str):
         #   2. Automatically add a separate constant (intercept) regressor for each
         #      run — this soaks up between-run baseline differences.
         #   3. Apply high-pass filtering WITHIN each run (cosine drift regressors
-        #      are generated per-run, so the filter never crosses run boundaries).
+        #      are generated per-run).
 
         model = FirstLevelModel(
             t_r=T_R,
