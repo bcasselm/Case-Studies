@@ -1,5 +1,5 @@
-# Repository For Our Project Within The UGhent Course "Case Studies in The Analysis of Experimental Data"
+# Representational Similarity Analysis of fMRI Data on Emotional Concept Representation and LLM-Derived Contextual Embeddings
 
-This project will focus on representational similarity analysis of human fMRI data and LLM-derived representations of the same stimuli. We want to investigate whether negative bias, commonly observed in depression, is reflected in how meaning is structured in both the human brain and AI models. 
+This project focuses on the representational similarity analysis of fMRI data on emotional concept (word) representation and LLM-derived contextual embeddings of these words. We aim to understand how similar the brain's representation of concepts is to the representations derived from large language models, and how this similarity varies according to the emotional valence of these words (and across different brain regions). Specifically, we investigate whether the brain's representation of emotional concepts is more similar to LLM-derived representations for negatively valenced words compared to positively valenced words, and whether this relationship is stronger in certain brain regions (e.g., amygdala, insula) known to be involved in emotional processing. 
 
-Depression is known to involve a negative bias in cognition (e.g., stronger processing of negative information), but it is unclear whether this bias exists at the level of semantic representation itself.
+All data used in the project is publicly available and can be accessed via the OpenNeuro dataset [ds004301](https://doi.org/10.18112/openneuro.ds004301.v1.0.2) ([Wang et al., 2023](https://doi.org/10.1038/s41597-022-01840-2)). 
