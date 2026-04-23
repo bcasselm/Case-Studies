@@ -12,7 +12,6 @@ Assumptions
 Outputs
 -------
 betas/<sub>/beta_<word>.nii.gz   – one 3-D NIfTI per word per subject
-betas/<sub>/masker_<sub>.pkl     – NiftiMasker fitted to that subject (reuse in RSA)
 """
 
 #####################################################################
@@ -43,16 +42,16 @@ MASK_PATH      = Path("/home/f_moldovan/projects/case_studies/data/brain_parcell
 # GLM parameters
 T_R            = BIDSLayout(BIDS_DIR).get_tr()          # repetition time in seconds (should be 2.0 for this dataset) - we read it from BIDS metadata to avoid hardcoding
 SLICE_TIME_REF = 0.5                                    # reference slice for slice-timing (0–1, fraction of TR; should be in the middle of TR according to fMRIPrep documentation)
-HRF_MODEL      = "glover"                               # change this later to "glover"+ derivative + dispersion" for more flexible HRF modeling if needed (but beware of overfitting with only 672 trials), for now stick with canonical HRF to keep it simple
+HRF_MODEL      = "glover"                               # for now a rather simple canonical HRF model; we could consider more flexible basis sets if we want to capture more complex response shapes, but this is a good starting point and keeps the model simpler (and less likely to overfit) given our limited data per condition. Note that for RSA, we care more about relative differences between conditions than absolute effect sizes, so a simple HRF model is often sufficient.
 DRIFT_MODEL    = "cosine"                               # high-pass filtering via discrete cosines
 HIGH_PASS      = 1/128                                  # Hz  (128 s period, SPM default)
 SMOOTHING_FWHM = 6                                      # mm (None = no smoothing)
 MAX_RUNS       = 0                                      # 0 = use all runs, >0 = use first N runs
 
-# Which fMRIPrep confounds to include
+# Which fMRIPrep confounds to include (now we only include motion parameters and WM/CSF signals, but we could add more if needed; sometimes some confounds have their own parameters, e.g. motion can be 'basic' (6 parameters) or 'full' (24 parameters including derivatives and squares))
 CONFOUND_STRATEGY = ("motion", "wm_csf")
 MOTION_PARAMS     = "full"    # 'basic'=6, 'full'=24
-WM_CSF_PARAMS     = "basic"    # 'basic'=2, 'full'=8; change this to 'full' to include derivatives and squares of WM/CSF signals, but for now we stick with 'basic' to keep the model simpler 
+WM_CSF_PARAMS     = "full"    # 'basic'=2, 'full'=8; change this to 'full' to include derivatives and squares of WM/CSF signals, but for now we stick with 'basic' to keep the model simpler 
 
 # Memory/performance controls
 N_JOBS           = 1
@@ -292,7 +291,7 @@ if __name__ == "__main__":
     first_successful_subject = None
     for sub in tqdm(SUBJECTS, desc="Fitting first-level models"):
         try:
-            conditions = fit_first_level(sub)
+            conditions = fit_first_level(sub) # driver of the whole process for one subject
             if all_conditions is None:
                 all_conditions = conditions
             if first_successful_subject is None:
