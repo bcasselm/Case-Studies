@@ -31,10 +31,10 @@ from nimare.correct import FWECorrector
 #####################################################################
 # Configuration
 #####################################################################
-DOWNLOAD_DIR = "/home/f_moldovan"               # Directory to store Neurosynth data
-OUT_DIR = "data/brain_parcellations"  # Directory to save individual and union parcellation masks
+DOWNLOAD_DIR = "/home/f_moldovan"                               # Directory to store Neurosynth data
+OUT_DIR = "data/brain_parcellations"                            # Directory to save individual and union parcellation masks
 os.makedirs(OUT_DIR, exist_ok=True)
-VIS_DIR = "reports/figures/brain_parcellation"  # Directory to save visualization of union parcellation
+VIS_DIR = "reports/figures/brain_parcellation"                  # Directory to save visualization of union parcellation
 os.makedirs(VIS_DIR, exist_ok=True)
 
 TARGET_TERMS = ["emotion", "representation", "word", "concept"] # Terms to match in topic features; we want topics that relate to both emotion and semantics/words, so we include terms from both domains. Adjust as needed to find relevant topics. Beware, following correlation distribution changes
@@ -59,6 +59,7 @@ def print_mask_space_info(mask_img, mask_path):
     print(f"  qform_code: {int(header['qform_code'])}")
     print(f"  sform_code: {int(header['sform_code'])}")
     print(f"  affine:\n{mask_img.affine}")
+
 
 def load_dataset():
     """
