@@ -2,7 +2,7 @@
 Representational Similarity Analysis (RSA)
 
 Performs RSA between the earlier computed beta maps and the contextual word embeddings for each of the 
-672 words and for each of the 76 ROIs in our Neurosynth meta-analytic parcellation. This parcellation 
+672 words and for each of the 39 ROIs in our Neurosynth meta-analytic parcellation. This parcellation 
 is based on the FDR-corrected significant positive effects from the MKDA meta-analysis of the top topics related to emotional 
 concept representation.
 
