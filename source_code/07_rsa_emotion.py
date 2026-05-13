@@ -3,7 +3,7 @@ Performs a dual emotion-modulated RSA analysis to test whether the alignment bet
 positivity or negativity ratings of words. This script includes:
 1. Loading the BERT similarity matrix and the emotion ratings for the 672 words.
 2. Creating continuous pairwise intensity matrices for positivity and negativity based on the ratings of the individual words.
-3. For each subject and each ROI, fitting a quantile regression model where the dependent variable is the neural similarity (RSA) and the independent variables are:
+3. For each subject and each ROI, fitting a quantile regression model where the dependent variable is the neural similarity and the independent variables are:
    - The BERT similarity (main effect)
    - The pairwise positivity intensity (main effect)
    - The pairwise negativity intensity (main effect)
@@ -13,6 +13,7 @@ positivity or negativity ratings of words. This script includes:
 5. Performing group-level statistical tests (Wilcoxon signed-rank test) on the interaction betas across subjects for each ROI, 
 and applying FDR correction for multiple comparisons.
 6. Visualizing the results in a bar plot where ROIs with significant positivity or negativity bias are colored differently.
+
 The goal of this analysis is to determine if certain brain regions show a stronger alignment between neural and BERT similarity 
 for words that are more positive or more negative, which would suggest an emotion-specific modulation of semantic representations in LLMs.
 '''
