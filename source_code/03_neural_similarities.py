@@ -1,12 +1,8 @@
 '''
-Representational Similarity Analysis (RSA)
-
-Performs RSA between the earlier computed beta maps and the contextual word embeddings for each of the 
-672 words and for each of the 39 ROIs in our Neurosynth meta-analytic parcellation. This parcellation 
-is based on the FDR-corrected significant positive effects from the MKDA meta-analysis of the top topics related to emotional 
-concept representation.
-
-WORK IN PROGRESS: CURRENTLY COMPUTING SIMILARITY MATRICES FOR ALL SUBJECTS AND ALL ROIs, THEN SAVING TO DISK.
+Computes the similarity matrices between the neural activation patterns (beta maps) for each of the 672 conditions/words, 
+separately for each of the 39 ROIs in our Neurosynth meta-analytic parcellation, and separately for each subject. 
+The similarity metric used is correlation distance (1 - Pearson correlation), which is commonly used in RSA studies. 
+The resulting similarity matrices are stored as Adjacency objects from nltools, which can be easily manipulated and visualized later on.
 '''
 
 #####################################################################
@@ -74,10 +70,10 @@ mask_array = mask_img.get_fdata().astype(int).flatten()  # (91*109*91,) = full v
 brain_mask = mask_array > 0  # (n_full_voxels,)
 shared_masker = NiftiMasker(mask_img=mask_path)
 shared_masker.fit()  # Fit the masker to the mask image
-beta_data = shared_masker.transform(image.concat_imgs(file_list))  # (672, 84067)
+beta_data = shared_masker.transform(image.concat_imgs(file_list))
 
 # Get parcel labels for only the masked voxels
-parcel_labels = mask_array[brain_mask]  # (84067,)
+parcel_labels = mask_array[brain_mask] 
 
 print("Parcel labels shape:", parcel_labels.shape)
 print("Unique labels:", np.unique(parcel_labels))
@@ -120,8 +116,11 @@ for sub in tqdm(subs, desc="Processing subjects"):
             arr = squareform(arr)
         arrays.append(arr)
 
-    # Save as a compressed NPZ with one array per ROI (keys: roi_0, roi_1, ...)
-    save_dict = {f'roi_{i}': arrays[i] for i in range(len(arrays))}
+    # Save as a compressed NPZ with one array per ROI (keys: roi_1, roi_2, ...)
+    # The original ROI IDs start from 1, so we'll use those for the keys.
+    roi_ids = np.unique(parcel_labels)
+    roi_ids = roi_ids[roi_ids != 0]  # Exclude background
+    save_dict = {f'roi_{roi_ids[i]}': arrays[i] for i in range(len(arrays))}
     np.savez_compressed(os.path.join(output_dir, 'similarity_matrices.npz'), **save_dict)
 print(f"Computed similarity matrices for {len(similarity_matrices_subs)} subjects, each with {len(similarity_matrices_subs[0])} ROI-specific matrices, meaning {len(similarity_matrices_subs) * len(similarity_matrices_subs[0])} total similarity matrices.")
 
@@ -131,11 +130,11 @@ print(f"Computed similarity matrices for {len(similarity_matrices_subs)} subject
 #####################################################################
 similarity_matrices = similarity_matrices_subs[0]  # Get the similarity matrices for the first subject
 
-roi_id = 1  # Change this to visualize different ROIs
+roi_id = 20  # Change this to visualize different ROIs
 roi_array = (mask_array.reshape(91, 109, 91) == roi_id).astype(np.float32)
 roi_nifti = nib.Nifti1Image(roi_array, mask_img.affine, mask_img.header)
 
-plotting.plot_roi(roi_nifti, colorbar = False, title=f"ROI {roi_id} Mask")
+plotting.plot_roi(roi_nifti, colorbar = False, title=f"ROI {roi_id} Mask", draw_cross=False, black_bg = True)
 save_path = '/home/f_moldovan/projects/case_studies/reports/figures/examples'
 plt.savefig(os.path.join(save_path, f'sub-01_roi_{roi_id}_mask.png'), dpi=300)
 
