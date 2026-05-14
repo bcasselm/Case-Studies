@@ -40,12 +40,14 @@ BIDS_DIR = os.path.join(BASE_DIR, 'data/bids')
 DERIVATIVES_DIR = os.path.join(BIDS_DIR, 'derivatives')
 ANNOTATIONS_DIR = os.path.join(DERIVATIVES_DIR, 'annotations')
 NEURAL_SIM_DIR = os.path.join(DERIVATIVES_DIR, 'similarity_matrices')
-OUTPUT_DIR = os.path.join(BASE_DIR, 'data/rsa_results')
+DATA_OUTPUT_DIR = os.path.join(BASE_DIR, 'data/rsa_results')
+VISUAL_OUTPUT_DIR = os.path.join(BASE_DIR, 'reports', 'plots', 'rsa_results')
 
 BERT_SIM_FILE = os.path.join(ANNOTATIONS_DIR, 'embeddings/contextual word embeddings/BERT_similarity_matrix_adj.npz')
 EMOTION_RATINGS_FILE = os.path.join(BASE_DIR, 'data/emotion_ratings/word_ratings.csv') # Must contain 'word', 'positivity', 'negativity'
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(DATA_OUTPUT_DIR, exist_ok=True)
+os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 
 ########################################################################
 # Data loading
@@ -100,7 +102,7 @@ neural_sim_files = [os.path.join(NEURAL_SIM_DIR, f, 'similarity_matrices.npz') f
 rsa_results = []
 
 # Create or clear the summary text file before the loop
-summary_file_path = os.path.join(OUTPUT_DIR, 'regression_summaries.txt')
+summary_file_path = os.path.join(DATA_OUTPUT_DIR, 'regression_summaries.txt')
 with open(summary_file_path, 'w') as f:
     f.write("Quantile Regression Summaries (q=0.5)\n")
     f.write("="*50 + "\n\n")
@@ -142,7 +144,7 @@ for file in tqdm(neural_sim_files, desc="Computing dual emotion-modulated RSA"):
         })
 
 rsa_df = pd.DataFrame(rsa_results)
-rsa_df.to_csv(os.path.join(OUTPUT_DIR, 'rsa_dual_emotion_bias_results.csv'), index=False)
+rsa_df.to_csv(os.path.join(DATA_OUTPUT_DIR, 'rsa_dual_emotion_bias_results.csv'), index=False)
 
 ########################################################################
 # Group-Level Statistics (second level, across subjects)
@@ -188,7 +190,7 @@ for bias in group_stats_df['bias_type'].unique():
         group_stats_df.loc[valid_p.index, 'p_value_fdr'] = p_fdr
 
 # Save stats to CSV
-stats_path = os.path.join(OUTPUT_DIR, 'group_level_statistics.csv')
+stats_path = os.path.join(DATA_OUTPUT_DIR, 'group_level_statistics.csv')
 group_stats_df.to_csv(stats_path, index=False)
 print(f"Group level statistics saved to {stats_path}")
 
@@ -269,5 +271,5 @@ legend_handles = [
 plt.legend(handles=legend_handles, title="Bias Significance")
 
 plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, 'rsa_dual_emotion_bias.png'))
+plt.savefig(os.path.join(VISUAL_OUTPUT_DIR, 'rsa_dual_emotion_bias.png'))
 print("All analyses complete. Results saved to output directory.")
