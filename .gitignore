@@ -17,3 +17,6 @@ ENV/
 
 # Environment variables
 .env
+
+# All of data
+data/
