@@ -17,11 +17,19 @@ import numpy as np
 import pandas as pd
 
 ######################################################################
+# Configuration
+######################################################################
+DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
+BIDS_DIR = os.path.join(DATA_DIR, 'bids')
+RATINGS_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'semantic feature', 'feature.csv')
+TRANSLATIONS_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', '672words_translations.csv')
+OUT_DIR = os.path.join(DATA_DIR, 'emotion_ratings')
+os.makedirs(OUT_DIR, exist_ok=True)
+
+######################################################################
 # Data loading
 ######################################################################
-data_dir = '/home/f_moldovan/projects/case_studies/data/bids'
-ratings_file = os.path.join(data_dir, 'derivatives', 'annotations', 'semantic feature', 'feature.csv')
-ratings_df = pd.read_csv(ratings_file)
+ratings_df = pd.read_csv(RATINGS_FILE_PATH)
 
 print(ratings_df.head())  # Check the structure of the ratings data
 print(ratings_df.columns)  # Check column names to identify relevant features 
@@ -44,8 +52,7 @@ print(word_ratings.head())  # Check the computed ratings
 ######################################################################
 # Translate Chinese words to English using the provided translations file
 ######################################################################
-translations_file = os.path.join(data_dir, 'derivatives', 'annotations', '672words_translations.csv')
-translations_df = pd.read_csv(translations_file, header=None)
+translations_df = pd.read_csv(TRANSLATIONS_FILE_PATH, header=None)
 translations_dict = dict(zip(translations_df.iloc[:, 0], translations_df.iloc[:, 1]))  # Create a dictionary for translation
 word_ratings['word'] = word_ratings['word'].map(translations_dict)
 
@@ -54,6 +61,5 @@ print(word_ratings.head())  # Check the translated words
 ######################################################################
 # Save the ratings to a CSV file for later use in RSA analyses
 ######################################################################
-output_file = os.path.join('data', 'emotion_ratings', 'word_ratings.csv')
-os.makedirs(os.path.dirname(output_file), exist_ok=True)
+output_file = os.path.join(OUT_DIR, 'word_ratings.csv')
 word_ratings.to_csv(output_file, index=False)

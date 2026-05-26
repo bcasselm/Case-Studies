@@ -22,16 +22,28 @@ from tqdm import tqdm
 import nibabel as nib
 
 #####################################################################
+# Configuration
+#####################################################################
+DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
+BIDS_DIR = os.path.join(DATA_DIR, 'bids')
+ALIGNMENT_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'align.csv') # This file contains the mapping from condition names (e.g., word1, word2) to the actual Chinese words used in the experiment.
+TRANSLATIONS_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', '672words_translations.csv') # This file contains the mapping from Chinese words to their English translations
+MASK_PATH = os.path.join(DATA_DIR, 'brain_parcellations', 'emotion_parcellation_rsa_union.nii.gz') # This is the path to the parcellation mask we will use to extract voxel data for each ROI. It should be in the same space as the beta maps (e.g., MNI space).
+OUT_DIR = os.path.join(BIDS_DIR, 'derivatives', 'similarity_matrices') # Directory where we will save the computed similarity matrices for each subject and ROI.
+FIG_DIR = os.path.join(DATA_DIR, 'reports', 'figures', 'examples') # Directory to save example figures of ROI masks.
+PLOT_DIR = os.path.join(DATA_DIR, 'reports', 'plots', 'examples') # Directory to save example plots of similarity matrices.
+EXAMPLE_ROI = 20 # We will visualize the similarity matrix and actual mask for this ROI as an example. You can change this to visualize different ROIs.
+
+#####################################################################
 # Data loading
 #####################################################################
-data_dir = '/home/f_moldovan/projects/case_studies/data/bids'
-layout = BIDSLayout(data_dir, derivatives=True)
+layout = BIDSLayout(BIDS_DIR, derivatives=True)
 
 # Get list of beta files for all subjects
 subs = layout.get_subjects()
 file_lists = []
 for sub in subs:
-    file_list = glob.glob(os.path.join(data_dir, 'derivatives', 'betas', f'sub-{sub}', 'beta_*'))
+    file_list = glob.glob(os.path.join(BIDS_DIR, 'derivatives', 'betas', f'sub-{sub}', 'beta_*'))
     file_list = [x for x in file_list]
     file_list = sorted(
         file_list,
@@ -44,18 +56,15 @@ file_list = file_lists[0]  # Get the file list for the first subject
 conditions = [os.path.basename(x).split("_")[1].split(".")[0] for x in file_list]
 
 # Replace word labels with actual words used (and translate from Chinese to English)
-alignment = pd.read_csv("/home/f_moldovan/projects/case_studies/data/bids/derivatives/annotations/align.csv")
+alignment = pd.read_csv(ALIGNMENT_FILE_PATH)
 chinese_words = [alignment[alignment['Con_Name'] == condition]['stimulus'].iloc[0] for condition in conditions]
 
-translations = pd.read_csv("/home/f_moldovan/projects/case_studies/data/bids/derivatives/annotations/672words_translations.csv", header=None)
+translations = pd.read_csv(TRANSLATIONS_FILE_PATH, header=None)
 conditions_english = []
 for chinese in chinese_words:
     translation = translations[translations.iloc[:, 0] == chinese].iloc[0, 1]
     conditions_english.append(translation) # builiding list of 672 English words corresponding to the 672 conditions
 print("Sample conditions (English):", conditions_english[:10]) # same order as in conditions list, but now in English (word1 = dwarf, word2 = love, etc.)
-
-# Load the mask 
-mask_path = "/home/f_moldovan/projects/case_studies/data/brain_parcellations/emotion_parcellation_rsa_union.nii.gz"
 
 #####################################################################
 # Similarity matrix between all conditions/words for each ROI 
@@ -63,12 +72,12 @@ mask_path = "/home/f_moldovan/projects/case_studies/data/brain_parcellations/emo
 #####################################################################
 # Create a masker to extract voxel data in the same space as the mask
 # Load parcel labels directly
-mask_img = nib.load(mask_path)
+mask_img = nib.load(MASK_PATH)
 mask_array = mask_img.get_fdata().astype(int).flatten()  # (91*109*91,) = full volume
 
 # Flatten beta data the same way, but only keep voxels inside the parcellation
 brain_mask = mask_array > 0  # (n_full_voxels,)
-shared_masker = NiftiMasker(mask_img=mask_path)
+shared_masker = NiftiMasker(mask_img=MASK_PATH)
 shared_masker.fit()  # Fit the masker to the mask image
 beta_data = shared_masker.transform(image.concat_imgs(file_list))
 
@@ -102,7 +111,7 @@ for sub in tqdm(subs, desc="Processing subjects"):
     similarity_matrices_subs.append(similarity_matrices_rois)
 
     # Save the similarity matrices for this subject to disk
-    output_dir = os.path.join(data_dir, 'derivatives', 'similarity_matrices', f'sub-{sub}')
+    output_dir = os.path.join(OUT_DIR, f'sub-{sub}')
     os.makedirs(output_dir, exist_ok=True)
     # Convert Adjacency objects to plain 2D numpy arrays before saving.
     # nltools.Adjacency.data can be 1D (condensed) or 2D (square). Handle both.
@@ -130,16 +139,12 @@ print(f"Computed similarity matrices for {len(similarity_matrices_subs)} subject
 #####################################################################
 similarity_matrices = similarity_matrices_subs[0]  # Get the similarity matrices for the first subject
 
-roi_id = 20  # Change this to visualize different ROIs
-roi_array = (mask_array.reshape(91, 109, 91) == roi_id).astype(np.float32)
+roi_array = (mask_array.reshape(91, 109, 91) == EXAMPLE_ROI).astype(np.float32)
 roi_nifti = nib.Nifti1Image(roi_array, mask_img.affine, mask_img.header)
 
-plotting.plot_roi(roi_nifti, colorbar = False, title=f"ROI {roi_id} Mask", draw_cross=False, black_bg = True)
-save_path = '/home/f_moldovan/projects/case_studies/reports/figures/examples'
-plt.savefig(os.path.join(save_path, f'sub-01_roi_{roi_id}_mask.png'), dpi=300)
-
-matrix_idx = 0 if roi_id == 0 else roi_id - 1
+plotting.plot_roi(roi_nifti, colorbar = False, title=f"ROI {EXAMPLE_ROI} Mask", draw_cross=False, black_bg = True)
+plt.savefig(os.path.join(FIG_DIR, f'sub-01_roi_{EXAMPLE_ROI}_mask.png'), dpi=300)
+matrix_idx = 0 if EXAMPLE_ROI == 0 else EXAMPLE_ROI - 1
 similarity_matrices[matrix_idx].labels = conditions_english
 similarity_matrices[matrix_idx].plot(vmin=-1, vmax=1, cmap='seismic')
-save_path = '/home/f_moldovan/projects/case_studies/reports/plots/examples'
-plt.savefig(os.path.join(save_path, f'sub-01_roi_{roi_id}_similarity.png'), dpi=300)
+plt.savefig(os.path.join(PLOT_DIR, f'sub-01_roi_{EXAMPLE_ROI}_similarity.png'), dpi=300)

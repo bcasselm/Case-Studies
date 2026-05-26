@@ -1,10 +1,10 @@
 '''
-Performs the RSA analysis between the neural similarity matrices and the BERT similarity matrix. 
-This script is meant to be run after both the neural similarity matrices and the BERT similarity matrix have been computed 
+Performs the RSA analysis between the neural similarity matrices and the LLM similarity matrix. 
+This script is meant to be run after both the neural similarity matrices and the LLM similarity matrix have been computed 
 and saved to disk by their respective scripts.
 
-The script loads the neural similarity matrices for each subject and each ROI, as well as the BERT similarity matrix,
-and then computes the Spearman correlation between the neural similarity matrices and the BERT similarity matrix for each subject and each ROI.
+The script loads the neural similarity matrices for each subject and each ROI, as well as the LLM similarity matrix,
+and then computes the Spearman correlation between the neural similarity matrices and the LLM similarity matrix for each subject and each ROI.
 
 The resulting RSA correlation values are stored in a pandas DataFrame, which can be easily manipulated and visualized later on.
 '''
@@ -25,10 +25,24 @@ from scipy.spatial import distance
 from statsmodels.stats.multitest import multipletests
 
 #######################################################################
+# Configuration
+#######################################################################
+LLM_NAME = 'GPT2' # Change this to the name of the LLM you are using (Electra, GPT2, ERNIE, BERT) to keep track of which similarity matrix corresponds to which LLM embeddings
+
+DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
+BIDS_DIR = os.path.join(DATA_DIR, 'bids')
+NEURAL_SIM_DIR = os.path.join(BIDS_DIR, 'derivatives', 'similarity_matrices') # Directory where the neural similarity matrices for each subject and each ROI are stored
+LLM_SIM_DIR = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'embeddings', 'contextual word embeddings', f'{LLM_NAME}_similarity_matrix_adj.npz') # Directory where the LLM similarity matrix is stored
+PLOTS_DIR = f'/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/{LLM_NAME}' # Directory to save the plots of the RSA results
+os.makedirs(PLOTS_DIR, exist_ok=True)
+RSA_DATA_DIR = os.path.join(DATA_DIR, 'rsa_results', LLM_NAME) # Directory to save the RSA results DataFrame and the bootstrap and permutation test results
+os.makedirs(RSA_DATA_DIR, exist_ok=True)
+
+np.random.seed(42) # Set a random seed for reproducibility of the bootstrapping and permutation tests
+#######################################################################
 # Data loading
 #######################################################################
-data_dir = '/home/f_moldovan/projects/case_studies/data/bids'
-layout = BIDSLayout(data_dir, derivatives=True)
+layout = BIDSLayout(BIDS_DIR, derivatives=True)
 
 # Get list of neural similarity matrices for all subjects and all ROIs
 # Assuming ROI-specific neural similarity matrices are stored into 1 file per subject, with one matrix per ROI (i.e., in a dictionary format)
@@ -36,7 +50,7 @@ subs = layout.get_subjects()
 print("Subjects found in BIDS dataset:", subs)
 neural_sim_files = []
 for sub in tqdm(subs, desc="Finding neural similarity matrix files"):
-    file_list = glob.glob(os.path.join(data_dir, 'derivatives', 'similarity_matrices', f'sub-{sub}', 'similarity_matrices.npz'))
+    file_list = glob.glob(os.path.join(NEURAL_SIM_DIR, f'sub-{sub}', 'similarity_matrices.npz'))
     if len(file_list) == 0:
         print(f"Warning: No neural similarity matrix found for subject {sub}")
     else:
@@ -51,23 +65,21 @@ for file in neural_sim_files[:3]:  # Print contents of first 3 files
     for roi, matrix in data.items():
         print(f"  ROI: {roi}, Shape: {matrix.shape}")
 
-# Load the BERT similarity matrix
-BERT_sim_file = os.path.join(data_dir, 'derivatives', 'annotations', 'embeddings', 'contextual word embeddings', 'BERT_similarity_matrix_adj.npz')
-if not os.path.exists(BERT_sim_file):
-    raise FileNotFoundError(f"BERT similarity matrix file not found at {BERT_sim_file}. Please run the BERT_similarity.py script first to compute and save the BERT similarity matrix.")
-bert_matrix = np.load(BERT_sim_file, allow_pickle=True)
-print("BERT similarity matrix file contents:", bert_matrix.files)
-bert_similarity_matrix_flat = bert_matrix['data']
-bert_labels = bert_matrix['labels']
-print("BERT similarity matrix shape:", bert_similarity_matrix_flat.shape) # need to reconstruct the matrix from the flattened data
-print("BERT similarity matrix labels shape:", bert_labels.shape) # should be (672,) with the English word labels corresponding to the 672 conditions
+# Load the {LLM_NAME} similarity matrix
+if not os.path.exists(LLM_SIM_DIR):
+    raise FileNotFoundError(f"{LLM_NAME} similarity matrix file not found at {LLM_SIM_DIR}. Please run the {LLM_NAME}_similarity.py script first to compute and save the {LLM_NAME} similarity matrix.")
+llm_matrix = np.load(LLM_SIM_DIR, allow_pickle=True)
+print(f"{LLM_NAME} similarity matrix file contents:", llm_matrix.files)
+llm_similarity_matrix_flat = llm_matrix['data']
+llm_labels = llm_matrix['labels']
+print(f"{LLM_NAME} similarity matrix shape:", llm_similarity_matrix_flat.shape) # need to reconstruct the matrix from the flattened data
+print(f"{LLM_NAME} similarity matrix labels shape:", llm_labels.shape) # should be (672,) with the English word labels corresponding to the 672 conditions
 
 # Reconstruct the 2D square matrix from the flattened 1D vector
-bert_similarity_matrix = distance.squareform(bert_similarity_matrix_flat)
-print("BERT similarity matrix shape:", bert_similarity_matrix.shape)
-
+llm_similarity_matrix = distance.squareform(llm_similarity_matrix_flat)
+print(f"{LLM_NAME} similarity matrix shape:", llm_similarity_matrix.shape) # should be (672, 672)
 ##########################################################################
-# Compute RSA correlations between neural similarity matrices and BERT similarity matrix
+# Compute RSA correlations between neural similarity matrices and LLM similarity matrix
 # for each subject and each ROI
 ##########################################################################
 rsa_results = []
@@ -84,8 +96,8 @@ for file in tqdm(neural_sim_files, desc="Computing RSA correlations"):
         # Get the upper triangle indices
         triu_indices = np.triu_indices_from(neural_matrix, k=1)
         neural_values = neural_matrix[triu_indices]
-        bert_values = bert_similarity_matrix[triu_indices]
-        rsa_corr, _ = spearmanr(neural_values, bert_values)
+        llm_values = llm_similarity_matrix[triu_indices]
+        rsa_corr, _ = spearmanr(neural_values, llm_values)
         rsa_results.append({'rsa_corr': rsa_corr, 'subject': subject_id, 'roi': roi})
 # Convert results to a pandas DataFrame
 rsa_df = pd.DataFrame(rsa_results)
@@ -98,24 +110,24 @@ print(rsa_df.head())
 ########################################################################
 plt.figure(figsize=(12, 15))
 sns.violinplot(x='rsa_corr', y='roi', data=rsa_df, hue = 'roi', inner='box')
-plt.title('RSA Correlation (Spearman) Between Neural Similarity And BERT Similarity Across ROIs')
+plt.title(f'RSA Correlation (Spearman) Between Neural Similarity And {LLM_NAME} Similarity Across ROIs')
 plt.xlabel('Spearman Correlation (RSA)')
 plt.ylabel('ROI')
 plt.xticks(rotation=45)
 plt.vlines(x=0, ymin=plt.ylim()[0], ymax=plt.ylim()[1], color='grey', linestyle='--')  # Add a vertical line at 0
 plt.tight_layout()
-plt.savefig('/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/rsa_violinplot.png', dpi=300)
+plt.savefig(os.path.join(PLOTS_DIR, f'rsa_violinplot_{LLM_NAME}.png'), dpi=300)
 
 # Also visualize distribution of RSA correlations across ROIs for each subject
 plt.figure(figsize=(12, 6))
 sns.violinplot(x='rsa_corr', y='subject', data=rsa_df, hue = 'subject', inner='box')
-plt.title('RSA Correlation (Spearman) Between Neural Similarity And BERT Similarity Across Subjects')
+plt.title(f'RSA Correlation (Spearman) Between Neural Similarity And {LLM_NAME} Similarity Across Subjects')
 plt.xlabel('Spearman Correlation (RSA)')
 plt.ylabel('Subject')
 plt.xticks(rotation=45)
 plt.vlines(x=0, ymin=plt.ylim()[0], ymax=plt.ylim()[1], color='grey', linestyle='--')  # Add a vertical line at 0
 plt.tight_layout()
-plt.savefig('/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/rsa_violinplot_subjects.png', dpi=300)
+plt.savefig(os.path.join(PLOTS_DIR, f'rsa_violinplot_{LLM_NAME}_subjects.png'), dpi=300)
 
 #######################################################################
 # Test for one-sided significance of RSA correlations across subjects for each ROI
@@ -197,7 +209,7 @@ for roi in rsa_df['roi'].unique():
     plt.ylabel('Frequency')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f'/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/permutation_distribution_{roi}.png', dpi=300)
+    plt.savefig(os.path.join(PLOTS_DIR, f'permutation_distribution_{roi}_{LLM_NAME}.png'), dpi=300)
     plt.close()
 
 #########################################################################
@@ -218,7 +230,9 @@ for _ in tqdm(range(n_bootstraps), desc="Bootstrapping across all ROIs and subje
 lower_ci_all = np.percentile(bootstrapped_medians_all, 2.5)
 upper_ci_all = np.percentile(bootstrapped_medians_all, 97.5)
 print("95% confidence interval for median RSA correlation across all ROIs and subjects:", (lower_ci_all, upper_ci_all))
-bootstrap_df_all = pd.DataFrame({'bootstrapped_median': bootstrapped_medians_all, 'lower_ci': lower_ci_all, 'upper_ci': upper_ci_all})
+bootstrap_df_all = pd.DataFrame({'bootstrapped_median': bootstrapped_medians_all})
+bootstrap_df_all['lower_ci'] = lower_ci_all
+bootstrap_df_all['upper_ci'] = upper_ci_all
 
 # Perform one-sided (greater than 0) permutation test for the median RSA correlation across all ROIs and subjects
 observed_median_all = median_rsa_all
@@ -232,7 +246,7 @@ for _ in tqdm(range(n_permutations), desc="Permutation testing across all ROIs a
     permuted_medians_all.append(permuted_median_all)
 p_value_all = np.mean(np.array(permuted_medians_all) >= observed_median_all)
 print("Permutation test p-value for median RSA correlation across all ROIs and subjects:", p_value_all)
-permutation_df_all = pd.DataFrame({'observed_median': observed_median_all, 'p_value': p_value_all})
+permutation_df_all = pd.DataFrame({'observed_median': [observed_median_all], 'p_value': [p_value_all]})
 
 # Visualize the permutation distribution of median RSA correlations with bootstrapped CI (across all ROIs and subjects)
 plt.figure(figsize=(8, 6))
@@ -245,15 +259,15 @@ plt.xlabel('Median RSA Correlation (Permuted)')
 plt.ylabel('Frequency')
 plt.legend()
 plt.tight_layout()
-plt.savefig('/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/permutation_distribution_all_rois.png', dpi=300)
+plt.savefig(os.path.join(PLOTS_DIR, f'permutation_distribution_all_rois_{LLM_NAME}.png'), dpi=300)
 plt.close()
 
 ########################################################################
 # Save the RSA results DataFrame to disk for later use
 ########################################################################
-rsa_df.to_csv('/home/f_moldovan/projects/case_studies/data/rsa_results/rsa_corrs.csv', index=False)
-bootstrap_df.to_csv('/home/f_moldovan/projects/case_studies/data/rsa_results/bootstrap_results.csv', index=False)
-permutation_df.to_csv('/home/f_moldovan/projects/case_studies/data/rsa_results/permutation_results.csv', index=False)
+rsa_df.to_csv(os.path.join(RSA_DATA_DIR, f'rsa_corrs_{LLM_NAME}.csv'), index=False)
+bootstrap_df.to_csv(os.path.join(RSA_DATA_DIR, f'bootstrap_results_{LLM_NAME}.csv'), index=False)
+permutation_df.to_csv(os.path.join(RSA_DATA_DIR, f'permutation_results_{LLM_NAME}.csv'), index=False)
 
-bootstrap_df_all.to_csv('/home/f_moldovan/projects/case_studies/data/rsa_results/bootstrap_results_all_rois.csv', index=False)
-permutation_df_all.to_csv('/home/f_moldovan/projects/case_studies/data/rsa_results/permutation_results_all_rois.csv', index=False)
+bootstrap_df_all.to_csv(os.path.join(RSA_DATA_DIR, f'bootstrap_results_all_rois_{LLM_NAME}.csv'), index=False)
+permutation_df_all.to_csv(os.path.join(RSA_DATA_DIR, f'permutation_results_all_rois_{LLM_NAME}.csv'), index=False)

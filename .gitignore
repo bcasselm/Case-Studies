@@ -17,6 +17,3 @@ ENV/
 
 # Environment variables
 .env
-
-# All of the data (as of yet)
-data/

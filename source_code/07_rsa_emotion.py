@@ -1,20 +1,20 @@
 '''
-Performs a dual emotion-modulated RSA analysis to test whether the alignment between BERT and neural similarity is modulated by 
+Performs a dual emotion-modulated RSA analysis to test whether the alignment between LLM and neural similarity is modulated by 
 positivity or negativity ratings of words. This script includes:
-1. Loading the BERT similarity matrix and the emotion ratings for the 672 words.
+1. Loading the LLM similarity matrix and the emotion ratings for the 672 words.
 2. Creating continuous pairwise intensity matrices for positivity and negativity based on the ratings of the individual words.
 3. For each subject and each ROI, fitting a quantile regression model where the dependent variable is the neural similarity and the independent variables are:
-   - The BERT similarity (main effect)
+   - The LLM similarity (main effect)
    - The pairwise positivity intensity (main effect)
    - The pairwise negativity intensity (main effect)
-   - The interaction between BERT similarity and pairwise positivity (positivity bias)
-   - The interaction between BERT similarity and pairwise negativity (negativity bias)
+   - The interaction between LLM similarity and pairwise positivity (positivity bias)
+   - The interaction between LLM similarity and pairwise negativity (negativity bias)
 4. Extracting the beta coefficients for the interaction terms to assess positivity and negativity bias in each ROI and subject.
 5. Performing group-level statistical tests (Wilcoxon signed-rank test) on the interaction betas across subjects for each ROI, 
 and applying FDR correction for multiple comparisons.
 6. Visualizing the results in a bar plot where ROIs with significant positivity or negativity bias are colored differently.
 
-The goal of this analysis is to determine if certain brain regions show a stronger alignment between neural and BERT similarity 
+The goal of this analysis is to determine if certain brain regions show a stronger alignment between neural and LLM similarity 
 for words that are more positive or more negative, which would suggest an emotion-specific modulation of semantic representations in LLMs.
 '''
 
@@ -35,16 +35,18 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 # Configuration 
 ########################################################################
-BASE_DIR = '/home/f_moldovan/projects/case_studies'
-BIDS_DIR = os.path.join(BASE_DIR, 'data/bids')
+LLM_NAME = 'GPT2' # Change to your LLM of interest (BERT, ERNIE, Electra, GTP2)
+
+DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
+BIDS_DIR = os.path.join(DATA_DIR, 'bids')
 DERIVATIVES_DIR = os.path.join(BIDS_DIR, 'derivatives')
 ANNOTATIONS_DIR = os.path.join(DERIVATIVES_DIR, 'annotations')
 NEURAL_SIM_DIR = os.path.join(DERIVATIVES_DIR, 'similarity_matrices')
-DATA_OUTPUT_DIR = os.path.join(BASE_DIR, 'data/rsa_results')
-VISUAL_OUTPUT_DIR = os.path.join(BASE_DIR, 'reports', 'plots', 'rsa_results')
+DATA_OUTPUT_DIR = os.path.join(DATA_DIR, 'rsa_results', LLM_NAME)
+VISUAL_OUTPUT_DIR = f'/home/f_moldovan/projects/case_studies/reports/plots/rsa_results/{LLM_NAME}'
 
-BERT_SIM_FILE = os.path.join(ANNOTATIONS_DIR, 'embeddings/contextual word embeddings/BERT_similarity_matrix_adj.npz')
-EMOTION_RATINGS_FILE = os.path.join(BASE_DIR, 'data/emotion_ratings/word_ratings.csv') # Must contain 'word', 'positivity', 'negativity'
+LLM_SIM_FILE = os.path.join(ANNOTATIONS_DIR, f'embeddings/contextual word embeddings/{LLM_NAME}_similarity_matrix_adj.npz')
+EMOTION_RATINGS_FILE = os.path.join(DATA_DIR, 'emotion_ratings/word_ratings.csv') # Must contain 'word', 'positivity', 'negativity'
 
 os.makedirs(DATA_OUTPUT_DIR, exist_ok=True)
 os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
@@ -52,13 +54,13 @@ os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 ########################################################################
 # Data loading
 ########################################################################
-bert_matrix_file = np.load(BERT_SIM_FILE, allow_pickle=True)
-# Assuming BERT_SIM_FILE actually contains a similarity matrix, not dissimilarity
-bert_matrix = distance.squareform(bert_matrix_file['data'])
-bert_labels = bert_matrix_file['labels']
+llm_matrix_file = np.load(LLM_SIM_FILE, allow_pickle=True)
+# Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
+llm_matrix = distance.squareform(llm_matrix_file['data'])
+llm_labels = llm_matrix_file['labels']
 
 emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-emotion_df = emotion_df.set_index('word').loc[bert_labels].reset_index()
+emotion_df = emotion_df.set_index('word').loc[llm_labels].reset_index()
 
 # Get the two independent emotion dimensions
 pos_scores = emotion_df['positivity'].values
@@ -78,23 +80,22 @@ for i in range(n_words):
         pairwise_negativity[i, j] = (neg_scores[i] + neg_scores[j]) / 2.0
 
 # Extract upper triangles
-triu_indices = np.triu_indices_from(bert_matrix, k=1)
-bert_vec = bert_matrix[triu_indices]
+triu_indices = np.triu_indices_from(llm_matrix, k=1)
+llm_vec = llm_matrix[triu_indices]
 pair_pos_vec = pairwise_positivity[triu_indices]
 pair_neg_vec = pairwise_negativity[triu_indices]
 
 # Z-score predictors so betas are comparable
-bert_z = (bert_vec - np.mean(bert_vec)) / np.std(bert_vec)
+llm_z = (llm_vec - np.mean(llm_vec)) / np.std(llm_vec)
 pos_z = (pair_pos_vec - np.mean(pair_pos_vec)) / np.std(pair_pos_vec)
 neg_z = (pair_neg_vec - np.mean(pair_neg_vec)) / np.std(pair_neg_vec)
 
 # Create interaction terms
-interaction_pos = bert_z * pos_z
-interaction_neg = bert_z * neg_z
+interaction_pos = llm_z * pos_z
+interaction_neg = llm_z * neg_z
 
 # Design Matrix: X = Constant + Main Effects + Interactions
-X = sm.add_constant(np.column_stack([bert_z, pos_z, neg_z, interaction_pos, interaction_neg]))
-
+X = sm.add_constant(np.column_stack([llm_z, pos_z, neg_z, interaction_pos, interaction_neg]))
 ########################################################################
 # RSA via Quantile Regression for each subject and ROI (first level)
 ########################################################################
@@ -124,7 +125,7 @@ for file in tqdm(neural_sim_files, desc="Computing dual emotion-modulated RSA"):
             f.write(f"Subject: {subject_id} | ROI: {roi}\n")
             f.write(results.summary().as_text() + "\n\n")
         
-        # Extract interaction beta coefficients [Const, BERT, Pos, Neg, IntPos, IntNeg]
+        # Extract interaction beta coefficients [Const, LLM, Pos, Neg, IntPos, IntNeg]
         beta_int_pos = results.params[4]
         beta_int_neg = results.params[5]
 
@@ -132,14 +133,14 @@ for file in tqdm(neural_sim_files, desc="Computing dual emotion-modulated RSA"):
         rsa_results.append({
             'subject': subject_id,
             'roi': roi,
-            'bias_type': 'Positivity Bias (BERT * Positivity)',
+            'bias_type': f'Positivity Bias ({LLM_NAME} * Positivity)',
             'beta': beta_int_pos
         })
         # Store Negativity Bias
         rsa_results.append({
             'subject': subject_id,
             'roi': roi,
-            'bias_type': 'Negativity Bias (BERT * Negativity)',
+            'bias_type': f'Negativity Bias ({LLM_NAME} * Negativity)',
             'beta': beta_int_neg
         })
 
@@ -217,8 +218,8 @@ hue_order = rsa_df['bias_type'].unique()
 
 # Define color schemes
 color_map = {
-    'Positivity Bias (BERT * Positivity)': {'sig': "#fe0000", 'non_sig': 'lightgrey'}, # Red / Light Grey
-    'Negativity Bias (BERT * Negativity)': {'sig': "#2100de", 'non_sig': 'darkgrey'}   # Blue / Dark Grey
+    f'Positivity Bias ({LLM_NAME} * Positivity)': {'sig': "#fe0000", 'non_sig': 'lightgrey'}, # Red / Light Grey
+    f'Negativity Bias ({LLM_NAME} * Negativity)': {'sig': "#2100de", 'non_sig': 'darkgrey'}   # Blue / Dark Grey
 }
 
 # Iterate through the drawn bar patches (ignoring legend or extraneous patches)
@@ -255,7 +256,7 @@ for i, bar in enumerate(bar_patches):
 
 # Clean up baseline and labels
 plt.axhline(0, color='black', linestyle='--')
-plt.title('Does Positivity or Negativity modulate Neural-BERT alignment? (Colored = FDR p < 0.05)')
+plt.title(f'Does Positivity or Negativity modulate Neural-{LLM_NAME} alignment? (Colored = FDR p < 0.05)')
 plt.xlabel('ROI')
 plt.ylabel('Interaction Beta Coefficient (Median)')
 plt.xticks(rotation=45, ha='right')

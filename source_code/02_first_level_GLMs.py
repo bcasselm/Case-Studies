@@ -22,6 +22,7 @@ warnings.filterwarnings("ignore")
 
 import gc
 import re
+import os
 from pathlib import Path
 from tqdm import tqdm
 from nilearn import plotting
@@ -34,10 +35,11 @@ from bids import BIDSLayout
 #####################################################################
 # Configuration
 #####################################################################
-BIDS_DIR       = Path("/home/f_moldovan/projects/case_studies/data/bids")
-FMRIPREP_DIR   = Path("/home/f_moldovan/projects/case_studies/data/bids/derivatives/preprocessed_data")
-OUT_DIR        = Path("/home/f_moldovan/projects/case_studies/data/bids/derivatives/betas")
-MASK_PATH      = Path("/home/f_moldovan/projects/case_studies/data/brain_parcellations/emotion_parcellation_rsa_union.nii.gz")
+DATA_DIR       = "/home/f_moldovan/projects/case_studies/data"
+BIDS_DIR       = os.path.join(DATA_DIR, "bids")
+FMRIPREP_DIR   = os.path.join(BIDS_DIR, "derivatives", "preprocessed_data")
+OUT_DIR        = os.path.join(BIDS_DIR, "derivatives", "betas")
+MASK_PATH      = os.path.join(DATA_DIR, "brain_parcellations", "emotion_parcellation_rsa_union.nii.gz")
 
 # GLM parameters
 T_R            = BIDSLayout(BIDS_DIR).get_tr()          # repetition time in seconds (should be 2.0 for this dataset) - we read it from BIDS metadata to avoid hardcoding
