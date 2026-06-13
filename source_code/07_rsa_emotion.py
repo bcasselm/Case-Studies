@@ -35,7 +35,7 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 # Configuration 
 ########################################################################
-LLM_NAME = 'GPT2' # Change to your LLM of interest (BERT, ERNIE, Electra, GTP2)
+LLM_NAME = 'Electra' # Change to your LLM of interest (BERT, ERNIE, Electra, GTP2)
 
 DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
 BIDS_DIR = os.path.join(DATA_DIR, 'bids')
@@ -50,6 +50,8 @@ EMOTION_RATINGS_FILE = os.path.join(DATA_DIR, 'emotion_ratings/word_ratings.csv'
 
 os.makedirs(DATA_OUTPUT_DIR, exist_ok=True)
 os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
+
+np.random.seed(42)  # For reproducibility of bootstrapped confidence intervals
 
 ########################################################################
 # Data loading
@@ -209,7 +211,7 @@ else:
 plt.figure(figsize=(18, 8))
 
 # Draw the plot with default colors first
-ax = sns.barplot(x='roi', y='beta', hue='bias_type', data=rsa_df, estimator=np.median, errorbar='ci')
+ax = sns.barplot(x='roi', y='beta', hue='bias_type', data=rsa_df, estimator=np.median, errorbar='ci', n_boot = 10000) # 10000 bootstrap samples for 95% CI
 
 # Extract order of X-axis and Hues to know which bar maps to which ROI/Bias
 rois = [tick.get_text() for tick in ax.get_xticklabels()]
