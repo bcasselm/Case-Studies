@@ -6,7 +6,7 @@ the Neurosynth database. It correlates topic-based features with specific
 terms related to emotion, concepts, words, and representations to find relevant topics.
 
 Then, for the top correlated topics, it runs a coordinate-based meta-analysis (specifically, multi-level kernel density) to identify 
-significant brain regions associated with those topics. It applies FWE cluster-level mass-based correction to control for multiple comparisons and extracts 
+significant brain regions associated with those topics. It applies FWE cluster-level size-based correction to control for multiple comparisons and extracts 
 significant clusters as parcels. Finally, it merges the parcels from the top topics into a single union parcellation mask for use in 
 RSA analyses. The union parcellation preserves the identity of each original parcel, except when parcels overlap 
 (in which case they are merged and first label is preserved), and applies a minimum size threshold to avoid very small parcels in the union.
@@ -140,7 +140,7 @@ def create_topic_specific_parcels(ns_data, top_topics):
         # Get corrected maps: threshold by corrected p-values, keep positive effects.
         z_map_name = None
         for key in results_fwe.maps.keys():
-            if "z_" in key and "level-cluster" in key:
+            if "z_" in key and "size_level-cluster" in key:
                 z_map_name = key
                 break
         if z_map_name is None:
@@ -154,7 +154,7 @@ def create_topic_specific_parcels(ns_data, top_topics):
         p_corr_map_name = None
         for key in results_fwe.maps.keys():
             key_lower = key.lower()
-            if "p" in key_lower and ("corr-fwe" in key_lower or "_corr-" in key_lower) and "level-cluster" in key_lower:
+            if "p" in key_lower and ("corr-fwe" in key_lower or "_corr-" in key_lower) and "size_level-cluster" in key_lower:
                 p_corr_map_name = key
                 break
         if p_corr_map_name is None:
@@ -184,7 +184,7 @@ def create_topic_specific_parcels(ns_data, top_topics):
         labeled_map, n_labels = ndimage.label(binary_mask)
 
         # Drop tiny components (min_size in voxels), then relabel sequentially
-        # NOTE: Since FWE correction already evaluates cluster significance (by mass here),
+        # NOTE: Since FWE correction already evaluates cluster significance (by size here),
         # highly significant but compact clusters might be smaller than 100 voxels.
         # We lower this to 0 (or a very small number like 10) to avoid dropping FWE-surviving parcels.
         min_size = MIN_PARCEL_SIZE
