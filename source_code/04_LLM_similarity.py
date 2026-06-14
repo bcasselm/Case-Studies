@@ -28,55 +28,79 @@ OUT_DIR = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'embeddings', 'co
 PLOTS_DIR = '/home/f_moldovan/projects/case_studies/reports/plots/embedding_sim_matrix' # Directory to save the plot of the similarity matrix
 
 #####################################################################
-# Data loading
+# Helper functions
 #####################################################################
-embeddings = scipy.io.loadmat(EMBEDDINGS_PATH)
-print("LLM embeddings keys:", embeddings.keys())
-print(embeddings['data'].shape)  # Should be (672, 769), 768 is the dimensionality of LLM embeddings for each word and the first column is the word labels (672 words)
+def load_and_preprocess_embeddings(embeddings_path, translations_path):
+    """Loads .mat embeddings, extracts labels/data, and translates to English."""
+    embeddings = scipy.io.loadmat(embeddings_path)
+    print("LLM embeddings keys:", embeddings.keys())
+    print(embeddings['data'].shape)  # Should be (672, 769 or 257), 768 (BERT, ERNIE, GPT2) or 256 (Electra) is the dimensionality of LLM embeddings for each word and the first column is the word labels (672 words)
 
-labels = np.squeeze(embeddings['data'][:, 0])  # Extract the word labels (first column)
-labels = np.vectorize(lambda x: str(np.squeeze(x)))(labels)  # Convert from 1x1 cell arrays to strings
-print("Sample word labels (Chinese):", labels[:10])  # Print the first 10 word labels to check if they are in Chinese as expected
-data = np.asarray(embeddings['data'][:, 1:]) # Extract the embeddings, ignoring the first column with word labels
+    labels = np.squeeze(embeddings['data'][:, 0])  # Extract the word labels (first column)
+    labels = np.vectorize(lambda x: str(np.squeeze(x)))(labels)  # Convert from 1x1 cell arrays to strings
+    print("Sample word labels (Chinese):", labels[:10])  # Print the first 10 word labels to check if they are in Chinese as expected
+    data = np.asarray(embeddings['data'][:, 1:]) # Extract the embeddings, ignoring the first column with word labels
 
-# Translate the word labels from Chinese to English using the 672words_translations.csv file
-translations = pd.read_csv(TRANSLATIONS_FILE_PATH, header=None)
-english_labels = []
-for chinese in labels:
-    translation = translations[translations.iloc[:, 0] == chinese].iloc[0, 1]
-    english_labels.append(translation) # builiding list of 672 English words corresponding to the 672 conditions
-print("Sample English labels:", english_labels[:10]) # same order as in labels list
+    # Translate the word labels from Chinese to English using the 672words_translations.csv file
+    translations = pd.read_csv(translations_path, header=None)
+    english_labels = []
+    for chinese in labels:
+        translation = translations[translations.iloc[:, 0] == chinese].iloc[0, 1]
+        english_labels.append(translation) # builiding list of 672 English words corresponding to the 672 conditions
+    print("Sample English labels:", english_labels[:10]) # same order as in labels list
 
-# Entries are 1x1 cell arrays, so we need to extract the actual values
-embeddings = np.vectorize(lambda x: float(np.squeeze(x)))(data)
-print(embeddings)
+    # Entries are 1x1 cell arrays, so we need to extract the actual values
+    embeddings_data = np.vectorize(lambda x: float(np.squeeze(x)))(data)
+    print(embeddings_data)
+    
+    return embeddings_data, english_labels
+
+def compute_similarity_matrix(embeddings_data, llm_name):
+    """Computes cosine similarity matrix between the contextual word embeddings."""
+    # Compute cosine similarity matrix between the BERT contextual word 
+    # embeddings for the 672 words
+    similarity_matrix = 1 - distance.pdist(embeddings_data, metric='cosine')
+    similarity_matrix = distance.squareform(similarity_matrix)  # Convert to square form
+    print(f"{llm_name} similarity matrix shape:", similarity_matrix.shape)  # Should be (672, 672)
+    
+    return similarity_matrix
+
+def plot_and_save_matrix(similarity_matrix, english_labels, llm_name, plots_dir):
+    """Visualizes and saves the similarity matrix as a PNG file."""
+    os.makedirs(plots_dir, exist_ok=True)
+    plotting.plot_matrix(similarity_matrix, 
+                         labels=english_labels, 
+                         colorbar=True, 
+                         title=f'{llm_name} Contextual Word Embeddings Similarity Matrix (cosine similarity)',
+                         cmap='viridis')  # Diverging colormap to show positive and negative similarities
+    plt.savefig(os.path.join(plots_dir, f'{llm_name}_similarity_matrix.png'), dpi=300, bbox_inches='tight')
+
+def save_adjacency_matrix(similarity_matrix, english_labels, llm_name, out_dir):
+    """Stores the similarity matrix as an Adjacency object from nltools and saves to NPZ."""
+    # Store the similarity matrix as an Adjacency object from nltools
+    # But ensure its shape is (672, 672) and not flattened, and also store 
+    # the labels in the Adjacency object
+    os.makedirs(out_dir, exist_ok=True)
+    adjacency = Adjacency(similarity_matrix, labels=english_labels)
+    np.savez_compressed(
+        os.path.join(out_dir, f'{llm_name}_similarity_matrix_adj.npz'),
+        data=adjacency.data,
+        labels=np.array(adjacency.labels, dtype=object)
+    )
+
 
 #####################################################################
-# Compute cosine similarity matrix between the BERT contextual word 
-# embeddings for the 672 words
+# Main execution
 #####################################################################
-similarity_matrix = 1 - distance.pdist(embeddings, metric='cosine')
-similarity_matrix = distance.squareform(similarity_matrix)  # Convert to square form
-print(f"{LLM_NAME} similarity matrix shape:", similarity_matrix.shape)  # Should be (672, 672)
-
-#######################################################################
-# Visualize and save the similarity matrix as png file
-#######################################################################
-plotting.plot_matrix(similarity_matrix, 
-                     labels=english_labels, 
-                     colorbar=True, 
-                     title=f'{LLM_NAME} Contextual Word Embeddings Similarity Matrix (cosine similarity)',
-                     cmap='viridis')  # Diverging colormap to show positive and negative similarities
-plt.savefig(os.path.join(PLOTS_DIR, f'{LLM_NAME}_similarity_matrix.png'), dpi=300, bbox_inches='tight')
-
-########################################################################
-# Store the similarity matrix as an Adjacency object from nltools
-# But ensure its shape is (672, 672) and not flattened, and also store 
-# the labels in the Adjacency object
-########################################################################
-adjacency = Adjacency(similarity_matrix, labels=english_labels)
-np.savez_compressed(
-    os.path.join(OUT_DIR, f'{LLM_NAME}_similarity_matrix_adj.npz'),
-    data=adjacency.data,
-    labels=np.array(adjacency.labels, dtype=object)
-)
+if __name__ == "__main__":
+    # 1. Load data and translate labels
+    embeddings_data, english_labels = load_and_preprocess_embeddings(EMBEDDINGS_PATH, TRANSLATIONS_FILE_PATH)
+    
+    # 2. Compute similarity
+    similarity_matrix = compute_similarity_matrix(embeddings_data, LLM_NAME)
+    
+    # 3. Plot and save visualization
+    plot_and_save_matrix(similarity_matrix, english_labels, LLM_NAME, PLOTS_DIR)
+    
+    # 4. Save to NPZ for later stages
+    save_adjacency_matrix(similarity_matrix, english_labels, LLM_NAME, OUT_DIR)

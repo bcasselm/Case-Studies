@@ -54,225 +54,251 @@ os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 np.random.seed(42)  # For reproducibility of bootstrapped confidence intervals
 
 ########################################################################
-# Data loading
+# Helper functions
 ########################################################################
-llm_matrix_file = np.load(LLM_SIM_FILE, allow_pickle=True)
-# Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
-llm_matrix = distance.squareform(llm_matrix_file['data'])
-llm_labels = llm_matrix_file['labels']
+def load_and_prepare_data(llm_sim_file, emotion_ratings_file):
+    """Loads similarity matrix and emotion ratings, returning aligned structures."""
+    llm_matrix_file = np.load(llm_sim_file, allow_pickle=True)
+    # Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
+    llm_matrix = distance.squareform(llm_matrix_file['data'])
+    llm_labels = llm_matrix_file['labels']
 
-emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-emotion_df = emotion_df.set_index('word').loc[llm_labels].reset_index()
+    emotion_df = pd.read_csv(emotion_ratings_file)
+    emotion_df = emotion_df.set_index('word').loc[llm_labels].reset_index()
 
-# Get the two independent emotion dimensions
-pos_scores = emotion_df['positivity'].values
-neg_scores = emotion_df['negativity'].values
-n_words = len(pos_scores)
+    # Get the two independent emotion dimensions
+    pos_scores = emotion_df['positivity'].values
+    neg_scores = emotion_df['negativity'].values
+    
+    return llm_matrix, pos_scores, neg_scores
 
-########################################################################
-# Create Continuous Pairwise Intensity Matrices
-########################################################################
-pairwise_positivity = np.zeros((n_words, n_words))
-pairwise_negativity = np.zeros((n_words, n_words))
+def create_design_matrix(llm_matrix, pos_scores, neg_scores):
+    """Generates continuous pairwise intensity matrices and the design matrix X."""
+    n_words = len(pos_scores)
+    pairwise_positivity = np.zeros((n_words, n_words))
+    pairwise_negativity = np.zeros((n_words, n_words))
 
-for i in range(n_words):
-    for j in range(n_words):
-        # The intensity of the pair is the average intensity of the two words
-        pairwise_positivity[i, j] = (pos_scores[i] + pos_scores[j]) / 2.0
-        pairwise_negativity[i, j] = (neg_scores[i] + neg_scores[j]) / 2.0
+    for i in range(n_words):
+        for j in range(n_words):
+            # The intensity of the pair is the average intensity of the two words
+            pairwise_positivity[i, j] = (pos_scores[i] + pos_scores[j]) / 2.0
+            pairwise_negativity[i, j] = (neg_scores[i] + neg_scores[j]) / 2.0
 
-# Extract upper triangles
-triu_indices = np.triu_indices_from(llm_matrix, k=1)
-llm_vec = llm_matrix[triu_indices]
-pair_pos_vec = pairwise_positivity[triu_indices]
-pair_neg_vec = pairwise_negativity[triu_indices]
+    # Extract upper triangles
+    triu_indices = np.triu_indices_from(llm_matrix, k=1)
+    llm_vec = llm_matrix[triu_indices]
+    pair_pos_vec = pairwise_positivity[triu_indices]
+    pair_neg_vec = pairwise_negativity[triu_indices]
 
-# Z-score predictors so betas are comparable
-llm_z = (llm_vec - np.mean(llm_vec)) / np.std(llm_vec)
-pos_z = (pair_pos_vec - np.mean(pair_pos_vec)) / np.std(pair_pos_vec)
-neg_z = (pair_neg_vec - np.mean(pair_neg_vec)) / np.std(pair_neg_vec)
+    # Z-score predictors so betas are comparable
+    llm_z = (llm_vec - np.mean(llm_vec)) / np.std(llm_vec)
+    pos_z = (pair_pos_vec - np.mean(pair_pos_vec)) / np.std(pair_pos_vec)
+    neg_z = (pair_neg_vec - np.mean(pair_neg_vec)) / np.std(pair_neg_vec)
 
-# Create interaction terms
-interaction_pos = llm_z * pos_z
-interaction_neg = llm_z * neg_z
+    # Create interaction terms
+    interaction_pos = llm_z * pos_z
+    interaction_neg = llm_z * neg_z
 
-# Design Matrix: X = Constant + Main Effects + Interactions
-X = sm.add_constant(np.column_stack([llm_z, pos_z, neg_z, interaction_pos, interaction_neg]))
-########################################################################
-# RSA via Quantile Regression for each subject and ROI (first level)
-########################################################################
-neural_sim_files = [os.path.join(NEURAL_SIM_DIR, f, 'similarity_matrices.npz') for f in os.listdir(NEURAL_SIM_DIR) if f.startswith('sub-')]
-rsa_results = []
+    # Design Matrix: X = Constant + Main Effects + Interactions
+    X = sm.add_constant(np.column_stack([llm_z, pos_z, neg_z, interaction_pos, interaction_neg]))
+    
+    return X, triu_indices
 
-# Create or clear the summary text file before the loop
-summary_file_path = os.path.join(DATA_OUTPUT_DIR, 'regression_summaries.txt')
-with open(summary_file_path, 'w') as f:
-    f.write("Quantile Regression Summaries (q=0.5)\n")
-    f.write("="*50 + "\n\n")
+def run_quantile_regression_rsa(neural_sim_dir, triu_indices, X, llm_name, data_output_dir):
+    """Loops through subjects/ROIs and fits Quantile Regression to derive beta coefficients."""
+    neural_sim_files = [os.path.join(neural_sim_dir, f, 'similarity_matrices.npz') for f in os.listdir(neural_sim_dir) if f.startswith('sub-')]
+    rsa_results = []
 
-for file in tqdm(neural_sim_files, desc="Computing dual emotion-modulated RSA"):
-    subject_id = os.path.basename(os.path.dirname(file)).replace('sub-', '')
-    data = np.load(file, allow_pickle=True)
+    # Create or clear the summary text file before the loop
+    summary_file_path = os.path.join(data_output_dir, 'regression_summaries.txt')
+    with open(summary_file_path, 'w') as f:
+        f.write("Quantile Regression Summaries (q=0.5)\n")
+        f.write("="*50 + "\n\n")
 
-    for roi, neural_matrix in data.items():
-        neural_vec = neural_matrix[triu_indices]
-        neural_z = (neural_vec - np.mean(neural_vec)) / np.std(neural_vec)
-        
-        # Fit Quantile Regression for the median (q=0.5)
-        model = sm.QuantReg(neural_z, X)
-        results = model.fit(q=0.5)
+    for file in tqdm(neural_sim_files, desc="Computing dual emotion-modulated RSA"):
+        subject_id = os.path.basename(os.path.dirname(file)).replace('sub-', '')
+        data = np.load(file, allow_pickle=True)
 
-        # Write the summary to the text file instead of printing to the terminal
-        with open(summary_file_path, 'a') as f:
-            f.write(f"Subject: {subject_id} | ROI: {roi}\n")
-            f.write(results.summary().as_text() + "\n\n")
-        
-        # Extract interaction beta coefficients [Const, LLM, Pos, Neg, IntPos, IntNeg]
-        beta_int_pos = results.params[4]
-        beta_int_neg = results.params[5]
-
-        # Store Biases
-        rsa_results.append({
-            'subject': subject_id,
-            'roi': roi,
-            'bias_type': f'Positivity Bias ({LLM_NAME} * Positivity)',
-            'beta': beta_int_pos
-        })
-        # Store Negativity Bias
-        rsa_results.append({
-            'subject': subject_id,
-            'roi': roi,
-            'bias_type': f'Negativity Bias ({LLM_NAME} * Negativity)',
-            'beta': beta_int_neg
-        })
-
-rsa_df = pd.DataFrame(rsa_results)
-rsa_df.to_csv(os.path.join(DATA_OUTPUT_DIR, 'rsa_dual_emotion_bias_results.csv'), index=False)
-
-########################################################################
-# Group-Level Statistics (second level, across subjects)
-########################################################################
-print("\nComputing Group-Level Statistics...")
-
-group_stats = []
-
-for bias in rsa_df['bias_type'].unique():
-    for roi in rsa_df['roi'].unique():
-        # Get all subject betas for this ROI and this Bias
-        subject_betas = rsa_df[(rsa_df['roi'] == roi) & (rsa_df['bias_type'] == bias)]['beta'].values
-        
-        # We need at least a few subjects to run a test
-        if len(subject_betas) > 3:
-            # Wilcoxon signed-rank test (non-parametric test against 0)
-            res = wilcoxon(subject_betas - 0)
-            p_val = res.pvalue
-            stat = res.statistic
-        else:
-            p_val = np.nan
-            stat = np.nan
+        for roi, neural_matrix in data.items():
+            neural_vec = neural_matrix[triu_indices]
+            neural_z = (neural_vec - np.mean(neural_vec)) / np.std(neural_vec)
             
-        group_stats.append({
-            'roi': roi,
-            'bias_type': bias,
-            'mean_beta': np.mean(subject_betas),
-            'median_beta': np.median(subject_betas),
-            'wilcoxon_stat': stat,
-            'p_value_uncorrected': p_val
-        })
+            # Fit Quantile Regression for the median (q=0.5)
+            model = sm.QuantReg(neural_z, X)
+            results = model.fit(q=0.5)
 
-group_stats_df = pd.DataFrame(group_stats)
+            # Write the summary to the text file instead of printing to the terminal
+            with open(summary_file_path, 'a') as f:
+                f.write(f"Subject: {subject_id} | ROI: {roi}\n")
+                f.write(results.summary().as_text() + "\n\n")
+            
+            # Extract interaction beta coefficients [Const, LLM, Pos, Neg, IntPos, IntNeg]
+            beta_int_pos = results.params[4]
+            beta_int_neg = results.params[5]
 
-# Apply FDR Correction separately for Positivity and Negativity Bias
-group_stats_df['p_value_fdr'] = np.nan
-for bias in group_stats_df['bias_type'].unique():
-    mask = group_stats_df['bias_type'] == bias
-    valid_p = group_stats_df[mask]['p_value_uncorrected'].dropna()
+            # Store Positivity Bias
+            rsa_results.append({
+                'subject': subject_id,
+                'roi': roi,
+                'bias_type': f'Positivity Bias ({llm_name} * Positivity)',
+                'beta': beta_int_pos
+            })
+            # Store Negativity Bias
+            rsa_results.append({
+                'subject': subject_id,
+                'roi': roi,
+                'bias_type': f'Negativity Bias ({llm_name} * Negativity)',
+                'beta': beta_int_neg
+            })
+
+    rsa_df = pd.DataFrame(rsa_results)
+    rsa_df.to_csv(os.path.join(data_output_dir, 'rsa_dual_emotion_bias_results.csv'), index=False)
     
-    if len(valid_p) > 0:
-        _, p_fdr, _, _ = multipletests(valid_p, method='fdr_bh')
-        group_stats_df.loc[valid_p.index, 'p_value_fdr'] = p_fdr
+    return rsa_df
 
-# Save stats to CSV
-stats_path = os.path.join(DATA_OUTPUT_DIR, 'group_level_statistics.csv')
-group_stats_df.to_csv(stats_path, index=False)
-print(f"Group level statistics saved to {stats_path}")
+def compute_group_level_statistics(rsa_df, data_output_dir):
+    """Computes second level group statistics via Wilcoxon tests + FDR corrections."""
+    print("\nComputing Group-Level Statistics...")
 
-# Print significant findings
-sig_findings = group_stats_df[group_stats_df['p_value_fdr'] < 0.05]
-if not sig_findings.empty:
-    print("\n--- ANY Significant ROIs (FDR corrected p < 0.05) ---")
-    print(sig_findings[['roi', 'bias_type', 'median_beta', 'p_value_fdr']])
-else:
-    print("\nNo significant ROIs found at FDR corrected p < 0.05.")
+    group_stats = []
 
-######################################################################## 
-# Visualization
+    for bias in rsa_df['bias_type'].unique():
+        for roi in rsa_df['roi'].unique():
+            # Get all subject betas for this ROI and this Bias
+            subject_betas = rsa_df[(rsa_df['roi'] == roi) & (rsa_df['bias_type'] == bias)]['beta'].values
+            
+            # We need at least a few subjects to run a test
+            if len(subject_betas) > 3:
+                # Wilcoxon signed-rank test (non-parametric test against 0)
+                res = wilcoxon(subject_betas - 0)
+                p_val = res.pvalue
+                stat = res.statistic
+            else:
+                p_val = np.nan
+                stat = np.nan
+                
+            group_stats.append({
+                'roi': roi,
+                'bias_type': bias,
+                'mean_beta': np.mean(subject_betas),
+                'median_beta': np.median(subject_betas),
+                'wilcoxon_stat': stat,
+                'p_value_uncorrected': p_val
+            })
+
+    group_stats_df = pd.DataFrame(group_stats)
+
+    # Apply FDR Correction separately for Positivity and Negativity Bias
+    group_stats_df['p_value_fdr'] = np.nan
+    for bias in group_stats_df['bias_type'].unique():
+        mask = group_stats_df['bias_type'] == bias
+        valid_p = group_stats_df[mask]['p_value_uncorrected'].dropna()
+        
+        if len(valid_p) > 0:
+            _, p_fdr, _, _ = multipletests(valid_p, method='fdr_bh')
+            group_stats_df.loc[valid_p.index, 'p_value_fdr'] = p_fdr
+
+    # Save stats to CSV
+    stats_path = os.path.join(data_output_dir, 'group_level_statistics.csv')
+    group_stats_df.to_csv(stats_path, index=False)
+    print(f"Group level statistics saved to {stats_path}")
+
+    # Print significant findings
+    sig_findings = group_stats_df[group_stats_df['p_value_fdr'] < 0.05]
+    if not sig_findings.empty:
+        print("\n--- ANY Significant ROIs (FDR corrected p < 0.05) ---")
+        print(sig_findings[['roi', 'bias_type', 'median_beta', 'p_value_fdr']])
+    else:
+        print("\nNo significant ROIs found at FDR corrected p < 0.05.")
+        
+    return group_stats_df
+
+def visualize_rsa_results(rsa_df, group_stats_df, llm_name, visual_output_dir):
+    """Draws and saves the significance-colored statistical bar plot."""
+    plt.figure(figsize=(18, 8))
+
+    # Draw the plot with default colors first
+    ax = sns.barplot(x='roi', y='beta', hue='bias_type', data=rsa_df, estimator=np.median, errorbar='ci', n_boot = 10000) # 10000 bootstrap samples for 95% CI
+
+    # Extract order of X-axis and Hues to know which bar maps to which ROI/Bias
+    rois = [tick.get_text() for tick in ax.get_xticklabels()]
+    # Ensure we exactly match the unique hue categories in the order Seaborn plotted them
+    hue_order = rsa_df['bias_type'].unique()
+
+    # Define color schemes
+    color_map = {
+        f'Positivity Bias ({llm_name} * Positivity)': {'sig': "#fe0000", 'non_sig': 'lightgrey'}, # Red / Light Grey
+        f'Negativity Bias ({llm_name} * Negativity)': {'sig': "#2100de", 'non_sig': 'darkgrey'}   # Blue / Dark Grey
+    }
+
+    # Iterate through the drawn bar patches (ignoring legend or extraneous patches)
+    n_rois = len(rois)
+    from matplotlib.patches import Rectangle
+    bar_patches = [p for p in ax.patches if isinstance(p, Rectangle)]
+
+    for i, bar in enumerate(bar_patches):
+        # Determine hue group and ROI based on the index
+        hue_idx = i // n_rois
+        roi_idx = i % n_rois
+        
+        # If the index exceeds our expected data patches (e.g., legend patches), stop modifying
+        if hue_idx >= len(hue_order) or roi_idx >= len(rois):
+            break
+            
+        current_hue = hue_order[hue_idx]
+        current_roi = rois[roi_idx]
+        
+        # Lookup the exact FDR p-value for this ROI and Bias group
+        fdr_p = group_stats_df[
+            (group_stats_df['roi'] == current_roi) & 
+            (group_stats_df['bias_type'] == current_hue)
+        ]['p_value_fdr'].values
+        
+        # Determine significance
+        is_sig = False
+        if len(fdr_p) > 0 and fdr_p[0] < 0.05:
+            is_sig = True
+            
+        # Apply coloring
+        target_color = color_map[current_hue]['sig'] if is_sig else color_map[current_hue]['non_sig']
+        bar.set_facecolor(target_color)
+
+    # Clean up baseline and labels
+    plt.axhline(0, color='black', linestyle='--')
+    plt.title(f'Does Positivity or Negativity modulate Neural-{llm_name} alignment? (Colored = FDR p < 0.05)')
+    plt.xlabel('ROI')
+    plt.ylabel('Interaction Beta Coefficient (Median)')
+    plt.xticks(rotation=45, ha='right')
+
+    # Rebuild legend to clarify colors
+    import matplotlib.patches as mpatches
+    legend_handles = [
+        mpatches.Patch(color='#d62728', label='Significant Positivity Bias'),
+        mpatches.Patch(color='lightgrey', label='Non-sig Positivity Bias'),
+        mpatches.Patch(color='#1f77b4', label='Significant Negativity Bias'),
+        mpatches.Patch(color='darkgrey', label='Non-sig Negativity Bias')
+    ]
+    plt.legend(handles=legend_handles, title="Bias Significance")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(visual_output_dir, 'rsa_dual_emotion_bias.png'))
+    print("All analyses complete. Results saved to output directory.")
+
 ########################################################################
-plt.figure(figsize=(18, 8))
-
-# Draw the plot with default colors first
-ax = sns.barplot(x='roi', y='beta', hue='bias_type', data=rsa_df, estimator=np.median, errorbar='ci', n_boot = 10000) # 10000 bootstrap samples for 95% CI
-
-# Extract order of X-axis and Hues to know which bar maps to which ROI/Bias
-rois = [tick.get_text() for tick in ax.get_xticklabels()]
-# Ensure we exactly match the unique hue categories in the order Seaborn plotted them
-hue_order = rsa_df['bias_type'].unique()
-
-# Define color schemes
-color_map = {
-    f'Positivity Bias ({LLM_NAME} * Positivity)': {'sig': "#fe0000", 'non_sig': 'lightgrey'}, # Red / Light Grey
-    f'Negativity Bias ({LLM_NAME} * Negativity)': {'sig': "#2100de", 'non_sig': 'darkgrey'}   # Blue / Dark Grey
-}
-
-# Iterate through the drawn bar patches (ignoring legend or extraneous patches)
-n_rois = len(rois)
-from matplotlib.patches import Rectangle
-bar_patches = [p for p in ax.patches if isinstance(p, Rectangle)]
-
-for i, bar in enumerate(bar_patches):
-    # Determine hue group and ROI based on the index
-    hue_idx = i // n_rois
-    roi_idx = i % n_rois
+# Main execution
+########################################################################
+if __name__ == "__main__":
+    # 1. Load data
+    llm_matrix, pos_scores, neg_scores = load_and_prepare_data(LLM_SIM_FILE, EMOTION_RATINGS_FILE)
     
-    # If the index exceeds our expected data patches (e.g., legend patches), stop modifying
-    if hue_idx >= len(hue_order) or roi_idx >= len(rois):
-        break
-        
-    current_hue = hue_order[hue_idx]
-    current_roi = rois[roi_idx]
+    # 2. Setup regression design matrices
+    X, triu_indices = create_design_matrix(llm_matrix, pos_scores, neg_scores)
     
-    # Lookup the exact FDR p-value for this ROI and Bias group
-    fdr_p = group_stats_df[
-        (group_stats_df['roi'] == current_roi) & 
-        (group_stats_df['bias_type'] == current_hue)
-    ]['p_value_fdr'].values
+    # 3. Perform RSA via Quantile Regression
+    rsa_df = run_quantile_regression_rsa(NEURAL_SIM_DIR, triu_indices, X, LLM_NAME, DATA_OUTPUT_DIR)
     
-    # Determine significance
-    is_sig = False
-    if len(fdr_p) > 0 and fdr_p[0] < 0.05:
-        is_sig = True
-        
-    # Apply coloring
-    target_color = color_map[current_hue]['sig'] if is_sig else color_map[current_hue]['non_sig']
-    bar.set_facecolor(target_color)
-
-# Clean up baseline and labels
-plt.axhline(0, color='black', linestyle='--')
-plt.title(f'Does Positivity or Negativity modulate Neural-{LLM_NAME} alignment? (Colored = FDR p < 0.05)')
-plt.xlabel('ROI')
-plt.ylabel('Interaction Beta Coefficient (Median)')
-plt.xticks(rotation=45, ha='right')
-
-# Rebuild legend to clarify colors
-import matplotlib.patches as mpatches
-legend_handles = [
-    mpatches.Patch(color='#d62728', label='Significant Positivity Bias'),
-    mpatches.Patch(color='lightgrey', label='Non-sig Positivity Bias'),
-    mpatches.Patch(color='#1f77b4', label='Significant Negativity Bias'),
-    mpatches.Patch(color='darkgrey', label='Non-sig Negativity Bias')
-]
-plt.legend(handles=legend_handles, title="Bias Significance")
-
-plt.tight_layout()
-plt.savefig(os.path.join(VISUAL_OUTPUT_DIR, 'rsa_dual_emotion_bias.png'))
-print("All analyses complete. Results saved to output directory.")
+    # 4. Compute second-level group statistics
+    group_stats_df = compute_group_level_statistics(rsa_df, DATA_OUTPUT_DIR)
+    
+    # 5. Visualize Modulated Alignments
+    visualize_rsa_results(rsa_df, group_stats_df, LLM_NAME, VISUAL_OUTPUT_DIR)

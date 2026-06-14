@@ -6,7 +6,7 @@ the Neurosynth database. It correlates topic-based features with specific
 terms related to emotion, concepts, words, and representations to find relevant topics.
 
 Then, for the top correlated topics, it runs a coordinate-based meta-analysis (specifically, multi-level kernel density) to identify 
-significant brain regions associated with those topics. It applies FWE correction to control for multiple comparisons and extracts 
+significant brain regions associated with those topics. It applies FWE cluster-level mass-based correction to control for multiple comparisons and extracts 
 significant clusters as parcels. Finally, it merges the parcels from the top topics into a single union parcellation mask for use in 
 RSA analyses. The union parcellation preserves the identity of each original parcel, except when parcels overlap 
 (in which case they are merged and first label is preserved), and applies a minimum size threshold to avoid very small parcels in the union.
@@ -85,9 +85,8 @@ def get_top_topics(ns_data):
     topic_cols = [c for c in features if c.startswith('LDA400_')]
 
     # Identify our target word columns (the actual words from the abstracts)
-    target_terms = [TARGET_TERMS]  # List of target terms to match in the feature columns
     matched_term_cols = []
-    for term in target_terms:
+    for term in TARGET_TERMS:
         matches = [col for col in topic_cols if term in col.lower()]
         if matches:
             matched_term_cols.extend(matches)
@@ -308,11 +307,11 @@ def run_sanity_checks():
     """
     img = nib.load(os.path.join(OUT_DIR, "emotion_parcellation_rsa_union.nii.gz"))
     data = img.get_fdata().astype(int)
-    print("Background present?", 0 in np.unique(data))
-    print("Parcel labels (sample):", [v for v in np.unique(data)[:10]])
-    print("Number of parcels (excluding background):", len(np.unique(data)) - (1 if 0 in np.unique(data) else 0))
-    print("Parcel sizes (sample):", {label: int((data == label).sum()) for label in np.unique(data) if label != 0})
-
+    unique_labels = np.unique(data)
+    print("Background present?", 0 in unique_labels)
+    print("Parcel labels (sample):", [v for v in unique_labels[:10]])
+    print("Number of parcels (excluding background):", len(unique_labels) - (1 if 0 in unique_labels else 0))
+    print("Parcel sizes:", {label: int((data == label).sum()) for label in unique_labels if label != 0})
 
 def save_union_visualization(final_parcellation):
     """
@@ -321,7 +320,7 @@ def save_union_visualization(final_parcellation):
     fig = plotting.plot_roi(final_parcellation, title="Union Parcellation for RSA",
                             display_mode="mosaic", colorbar=False, black_bg=True,
                             vmin=1)
-    fig_path = os.path.join(OUT_DIR, "emotion_parcellation_rsa_union_plot.png")
+    fig_path = os.path.join(VIS_DIR, "emotion_parcellation_rsa_union_plot.png")
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     print(f"Saved union parcellation figure to: {fig_path}")
 

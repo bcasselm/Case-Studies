@@ -53,7 +53,7 @@ MAX_RUNS       = 0                                      # 0 = use all runs, >0 =
 # Which fMRIPrep confounds to include (now we only include motion parameters and WM/CSF signals, but we could add more if needed; sometimes some confounds have their own parameters, e.g. motion can be 'basic' (6 parameters) or 'full' (24 parameters including derivatives and squares))
 CONFOUND_STRATEGY = ("motion", "wm_csf")
 MOTION_PARAMS     = "full"    # 'basic'=6, 'full'=24
-WM_CSF_PARAMS     = "full"    # 'basic'=2, 'full'=8; change this to 'full' to include derivatives and squares of WM/CSF signals, but for now we stick with 'basic' to keep the model simpler 
+WM_CSF_PARAMS     = "full"    # 'basic'=2, 'full'=8; change this to 'full' to include derivatives and squares of WM/CSF signals 
 
 # Memory/performance controls
 N_JOBS           = 1
@@ -172,7 +172,7 @@ def fit_first_level(subject: str):
         print(f"  Found {len(imgs)} runs")
 
         # Brain mask for GLM fitting (nilearn will apply this mask to all runs)
-        # Our mask is in the same space (MNI152) but 2mm resolution, while data is 1mm, so we rely on nilearn to handle resampling (to data) internally.
+        # Our mask is in the same space (MNI152) but 2mm resolution, while data is 1mm, so we rely on nilearn to handle resampling internally.
         mask_path = MASK_PATH
         if not Path(mask_path).exists():
             raise FileNotFoundError(f"Mask file not found: {mask_path}")
