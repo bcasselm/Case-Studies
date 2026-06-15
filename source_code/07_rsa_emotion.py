@@ -35,7 +35,7 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 # Configuration 
 ########################################################################
-LLM_NAME = 'Electra' # Change to your LLM of interest (BERT, ERNIE, Electra, GTP2)
+LLM_NAME = 'GPT2' # Change to your LLM of interest (BERT, ERNIE, Electra, GTP2)
 
 DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
 BIDS_DIR = os.path.join(DATA_DIR, 'bids')
