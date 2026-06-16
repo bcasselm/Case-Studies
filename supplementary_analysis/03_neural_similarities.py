@@ -2,8 +2,6 @@
 Computes the similarity matrices between the neural activation patterns (beta maps) for each word/condition,
 separately for each ROI in our Neurosynth meta-analytic parcellation, and separately for each subject.
 The similarity metric is correlation distance (1 - Pearson correlation), which is commonly used in RSA studies.
-Before correlating, the cross-condition mean pattern is removed from each ROI ("cocktail-blank" removal), so the
-ROI-wide average response shared across conditions does not inflate the similarities.
 The resulting similarity matrices are stored as Adjacency objects from nltools, which can be easily manipulated and visualized later on.
 '''
 
@@ -27,19 +25,18 @@ import nibabel as nib
 #####################################################################
 # Configuration
 #####################################################################
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
 DATA_DIR = PROJECT_ROOT / "data"
 BIDS_DIR = DATA_DIR / "ds004301"
 ANNOTATIONS_DIR = BIDS_DIR / "derivatives" / "annotations"
-ALIGNMENT_FILE_PATH = ANNOTATIONS_DIR / "align.csv"                  # maps condition names (word1, word2, ...) to the Chinese stimulus words
-TRANSLATIONS_FILE_PATH = ANNOTATIONS_DIR / "672words_translations.csv"  # maps Chinese words to their English translations
+ALIGNMENT_FILE_PATH = ANNOTATIONS_DIR / "align.csv"                                     # maps condition names (word1, word2, ...) to the Chinese stimulus words
+TRANSLATIONS_FILE_PATH = ANNOTATIONS_DIR / "672words_translations.csv"                  # maps Chinese words to their English translations
 MASK_PATH = DATA_DIR / "brain_parcellations" / "emotion_parcellation_rsa_union.nii.gz"  # parcellation mask (same space as the beta maps)
-BETAS_DIR = BIDS_DIR / "derivatives" / "betas"                      # per-word beta maps written by script 02
-OUT_DIR = BIDS_DIR / "derivatives" / "similarity_matrices"          # where the similarity matrices are saved
-FIG_DIR = PROJECT_ROOT / "reports" / "figures" / "examples"         # example ROI masks
-PLOT_DIR = PROJECT_ROOT / "reports" / "plots" / "examples"          # example similarity matrices
-EXAMPLE_ROI = 20            # ROI to visualize as an example
-COCKTAIL_BLANK = True       # subtract the cross-condition mean pattern within each ROI before correlating
+BETAS_DIR = BIDS_DIR / "derivatives" / "betas"                                          # per-word beta maps written by script 02
+OUT_DIR = BIDS_DIR / "derivatives" / "similarity_matrices"                              # where the similarity matrices are saved
+FIG_DIR = PROJECT_ROOT / "reports" / "figures" / "examples"                             # example ROI masks
+PLOT_DIR = PROJECT_ROOT / "reports" / "plots" / "examples"                              # example similarity matrices
+EXAMPLE_ROI = 20                                                                        # ROI to visualize as an example
 
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(FIG_DIR, exist_ok=True)
@@ -80,18 +77,31 @@ print("Sample conditions (English):", conditions_english[:10])
 # Similarity matrix between all conditions/words for each ROI
 # for all subjects
 #####################################################################
-# Load parcel labels directly
-mask_img = nib.load(str(MASK_PATH))
-mask_array = mask_img.get_fdata().astype(int).flatten()  # (91*109*91,) = full volume
-brain_mask = mask_array > 0                              # keep only voxels inside the parcellation
+# Resample the parcellation mask to the native beta grid (nearest-neighbour so
+# integer ROI labels are preserved).  The betas live at ~3 mm; the raw mask is
+# 2 mm.  Using the raw mask would make NiftiMasker upsample every beta to 2 mm,
+# which interpolates the data and undermines the multivariate patterns.
+_ref_beta = nib.load(file_lists[0][0])
+mask_img = image.resample_to_img(str(MASK_PATH), _ref_beta, interpolation="nearest")
+del _ref_beta
 
-shared_masker = NiftiMasker(mask_img=str(MASK_PATH))
+mask_array = mask_img.get_fdata().astype(int).flatten()
+brain_mask = mask_array > 0
+
+shared_masker = NiftiMasker(mask_img=mask_img)
 shared_masker.fit()
 
 # Parcel labels for the masked voxels (same order as the masker output)
 parcel_labels = mask_array[brain_mask]
 print("Parcel labels shape:", parcel_labels.shape)
 print("Unique labels:", np.unique(parcel_labels))
+print("NiftiMasker n_voxels:", shared_masker.mask_img_.get_fdata().astype(bool).sum())
+
+# Per-ROI voxel counts at the native beta resolution
+roi_ids_check = np.unique(parcel_labels)
+roi_ids_check = roi_ids_check[roi_ids_check != 0]
+print("Voxels per ROI (native grid):",
+      {int(r): int((parcel_labels == r).sum()) for r in roi_ids_check})
 
 similarity_matrices_subs = []
 for sub in tqdm(SUBJECTS, desc="Processing subjects"):
@@ -105,9 +115,6 @@ for sub in tqdm(SUBJECTS, desc="Processing subjects"):
 
         roi_mask = parcel_labels == roi_id        # boolean index, same space as beta_data
         roi_data = beta_data[:, roi_mask]          # (n_conditions, n_roi_voxels)
-
-        if COCKTAIL_BLANK:
-            roi_data = roi_data - roi_data.mean(axis=0, keepdims=True)  # remove cross-condition mean pattern
 
         dist_matrix = pairwise_distances(roi_data, metric='correlation')
         similarity = 1 - dist_matrix
@@ -143,8 +150,8 @@ print(f"Computed similarity matrices for {len(similarity_matrices_subs)} subject
 #####################################################################
 similarity_matrices = similarity_matrices_subs[0]
 
-roi_array = (mask_array.reshape(91, 109, 91) == EXAMPLE_ROI).astype(np.float32)
-roi_nifti = nib.Nifti1Image(roi_array, mask_img.affine, mask_img.header)
+roi_array = (mask_array.reshape(mask_img.shape[:3]) == EXAMPLE_ROI).astype(np.float32)
+roi_nifti = nib.Nifti1Image(roi_array, mask_img.affine)
 
 plotting.plot_roi(roi_nifti, colorbar=False, title=f"ROI {EXAMPLE_ROI} Mask", draw_cross=False, black_bg=True)
 plt.savefig(os.path.join(FIG_DIR, f'sub-01_roi_{EXAMPLE_ROI}_mask.png'), dpi=300)
