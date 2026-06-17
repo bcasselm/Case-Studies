@@ -19,7 +19,7 @@ from nltools.data import Adjacency
 #####################################################################
 # Configuration
 #####################################################################
-LLM_NAME = 'GPT2' # Change this to the name of the LLM you are using (Electra, GPT2, ERNIE, BERT) to keep track of which similarity matrix corresponds to which LLM embeddings
+LLM_NAME = 'BERT' # Change this to the name of the LLM you are using (Electra, GPT2, ERNIE, BERT) to keep track of which similarity matrix corresponds to which LLM embeddings
 
 BIDS_DIR = '/home/f_moldovan/projects/case_studies/data/bids'
 EMBEDDINGS_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'embeddings', 'contextual word embeddings', f'{LLM_NAME}.mat') # Path to the .mat file containing the embeddings for the 672 words, change this to the other embeddings if you want to compute similarity matrices for the other types of embeddings (Electra, GPT2, ERNIE)

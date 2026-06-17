@@ -24,14 +24,14 @@ import nibabel as nib
 #####################################################################
 # Configuration
 #####################################################################
-DATA_DIR = '/home/f_moldovan/projects/case_studies/data'
-BIDS_DIR = os.path.join(DATA_DIR, 'bids')
+BASE_DIR = '/home/f_moldovan/projects/case_studies'
+BIDS_DIR = os.path.join(BASE_DIR, 'data', 'bids')
 ALIGNMENT_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', 'align.csv') # This file contains the mapping from condition names (e.g., word1, word2) to the actual Chinese words used in the experiment.
 TRANSLATIONS_FILE_PATH = os.path.join(BIDS_DIR, 'derivatives', 'annotations', '672words_translations.csv') # This file contains the mapping from Chinese words to their English translations
-MASK_PATH = os.path.join(DATA_DIR, 'brain_parcellations', 'emotion_parcellation_rsa_union.nii.gz') # This is the path to the parcellation mask we will use to extract voxel data for each ROI. It should be in the same space as the beta maps (e.g., MNI space).
+MASK_PATH = os.path.join(BASE_DIR, 'data', 'brain_parcellations', 'emotion_parcellation_rsa_union.nii.gz') # This is the path to the parcellation mask we will use to extract voxel data for each ROI. It should be in the same space as the beta maps (e.g., MNI space).
 OUT_DIR = os.path.join(BIDS_DIR, 'derivatives', 'similarity_matrices') # Directory where we will save the computed similarity matrices for each subject and ROI.
-FIG_DIR = os.path.join(DATA_DIR, 'reports', 'figures', 'examples') # Directory to save example figures of ROI masks.
-PLOT_DIR = os.path.join(DATA_DIR, 'reports', 'plots', 'examples') # Directory to save example plots of similarity matrices.
+FIG_DIR = os.path.join(BASE_DIR, 'reports', 'figures', 'examples') # Directory to save example figures of ROI masks.
+PLOT_DIR = os.path.join(BASE_DIR, 'reports', 'plots', 'examples') # Directory to save example plots of similarity matrices.
 EXAMPLE_ROI = 20 # We will visualize the similarity matrix and actual mask for this ROI as an example. You can change this to visualize different ROIs.
 
 #####################################################################
