@@ -15,13 +15,17 @@ and applying FDR correction for multiple comparisons.
 6. Visualizing the results in a bar plot where ROIs with significant positivity or negativity bias are colored differently.
 
 In addition to the quantile regression above, three categorical analyses are run over the same 672 words, with words split into
-positive vs negative groups based on the emotion dimensions (positive if positivity >= negativity, else negative):
-   A.  Neural within-category coherence: is one valence category represented more similarly to itself (within-group neural
-       similarity) than the other? Tested per subject and ROI (contrast = negative - positive).
-   B. The same within-category coherence contrast computed on the single LLM similarity matrix (a property of the model,
-       so tested with a label-permutation null rather than across subjects).
-   C.  Valence-split RSA: is the neural-LLM alignment (Spearman RSA) stronger within positive or within negative word pairs?
-       Tested per subject and ROI (contrast = negative - positive).
+positive, neutral, and negative groups based on a difference-score threshold δ
+(positive if positivity − negativity > δ, negative if negativity − positivity > δ, neutral otherwise):
+   A.  Neural within-category coherence: for each subject and ROI, computes the mean neural similarity among all word pairs
+       within each valence group (positive, neutral, negative). All three pairwise contrasts (neg−pos, neg−neu, pos−neu)
+       are tested with a Wilcoxon signed-rank test across subjects per ROI, with BH-FDR correction across ROIs.
+   B.  The same within-category coherence measure computed on the single LLM similarity matrix. Because there is only one
+       LLM matrix (no subjects to aggregate over), significance is assessed via label-permutation: group labels are shuffled
+       10,000 times and all three pairwise contrasts are tested against the resulting null distributions.
+   C.  Valence-split RSA: for each subject and ROI, the neural-LLM Spearman correlation is computed separately within each
+       valence group (restricted to word pairs where both words share the same valence category). All three pairwise contrasts
+       (neg−pos, neg−neu, pos−neu) are tested with a Wilcoxon signed-rank test across subjects per ROI, with BH-FDR correction.
 '''
 
 ########################################################################
@@ -46,7 +50,7 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 LLM_NAME = 'BERT'  # Change to your LLM of interest (BERT, ERNIE, Electra, GPT2)
 
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
 DATA_DIR = PROJECT_ROOT / "data"
 BIDS_DIR = DATA_DIR / "ds004301"
 DERIVATIVES_DIR = BIDS_DIR / "derivatives"
@@ -60,6 +64,7 @@ EMOTION_RATINGS_FILE = DATA_DIR / "emotion_ratings" / "word_ratings.csv"  # Must
 
 N_LABEL_PERMUTATIONS = 10000  # for the B label-permutation test
 np.random.seed(42)            # for reproducibility of the label-permutation null
+VALENCE_THRESHOLD = 1.0       # δ: minimum |positivity - negativity| to assign a word to a valence pole
 
 os.makedirs(DATA_OUTPUT_DIR, exist_ok=True)
 os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
@@ -73,12 +78,14 @@ llm_matrix = distance.squareform(llm_matrix_file['data'])
 llm_labels = llm_matrix_file['labels']
 
 emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-emotion_df = emotion_df.set_index('word').loc[llm_labels].reset_index()
-
-# Get the two independent emotion dimensions (ordered to match llm_labels / the matrices)
-pos_scores = emotion_df['positivity'].values
-neg_scores = emotion_df['negativity'].values
-n_words = len(pos_scores)
+# Build per-label arrays via dict lookup instead of .loc[llm_labels], which would
+# expand duplicated labels (some English translations cover multiple Chinese words).
+_pos_map = dict(zip(emotion_df['word'], emotion_df['positivity']))
+_neg_map = dict(zip(emotion_df['word'], emotion_df['negativity']))
+llm_labels_str = [str(l) for l in llm_labels]
+pos_scores = np.array([_pos_map[l] for l in llm_labels_str])
+neg_scores = np.array([_neg_map[l] for l in llm_labels_str])
+n_words = len(pos_scores)  # exactly 672
 
 ########################################################################
 # Create Continuous Pairwise Intensity Matrices
@@ -289,12 +296,16 @@ print("Primary (quantile regression) analysis complete.")
 ########################################################################
 # Categorical valence analyses (A, B, C) over all 672 words
 ########################################################################
-# Split words into positive vs negative groups based on the emotion dimensions.
-# A word is positive if positivity >= negativity (ties -> positive), otherwise negative.
-is_positive = pos_scores >= neg_scores
+# Three-way split: positive / neutral / negative based on difference-score threshold δ.
+diff = pos_scores - neg_scores
+is_positive = diff >  VALENCE_THRESHOLD
+is_negative = diff < -VALENCE_THRESHOLD
+is_neutral  = ~is_positive & ~is_negative   # |diff| <= δ
 pos_idx = np.where(is_positive)[0]
-neg_idx = np.where(~is_positive)[0]
-print(f"\nValence groups: {len(pos_idx)} positive words, {len(neg_idx)} negative words")
+neu_idx = np.where(is_neutral)[0]
+neg_idx = np.where(is_negative)[0]
+print(f"\nValence groups (δ={VALENCE_THRESHOLD}): "
+      f"{len(pos_idx)} positive, {len(neu_idx)} neutral, {len(neg_idx)} negative words")
 
 
 def within_group_mean(matrix, idx):
@@ -359,76 +370,112 @@ for file in tqdm(neural_sim_files, desc="Computing valence coherence and split R
     data = np.load(file, allow_pickle=True)
 
     for roi, neural_matrix in data.items():
-        # A: within-category neural coherence (contrast = negative - positive)
+        # A: within-category neural coherence (all three pairwise contrasts)
         within_pos = within_group_mean(neural_matrix, pos_idx)
+        within_neu = within_group_mean(neural_matrix, neu_idx)
         within_neg = within_group_mean(neural_matrix, neg_idx)
         coherence_results.append({'subject': subject_id, 'roi': roi,
-                                  'within_positive': within_pos, 'within_negative': within_neg,
-                                  'contrast_neg_minus_pos': within_neg - within_pos})
+                                  'within_positive': within_pos, 'within_neutral': within_neu,
+                                  'within_negative': within_neg,
+                                  'contrast_neg_minus_pos': within_neg - within_pos,
+                                  'contrast_neg_minus_neu': within_neg - within_neu,
+                                  'contrast_pos_minus_neu': within_pos - within_neu})
 
-        # C: valence-split RSA (contrast = negative - positive)
+        # C: valence-split RSA (all three pairwise contrasts)
         rsa_pos, n_pos_pairs = split_rsa(neural_matrix, llm_matrix, pos_idx)
+        rsa_neu, n_neu_pairs = split_rsa(neural_matrix, llm_matrix, neu_idx)
         rsa_neg, n_neg_pairs = split_rsa(neural_matrix, llm_matrix, neg_idx)
         split_rsa_results.append({'subject': subject_id, 'roi': roi,
-                                  'rsa_positive': rsa_pos, 'rsa_negative': rsa_neg,
+                                  'rsa_positive': rsa_pos, 'rsa_neutral': rsa_neu,
+                                  'rsa_negative': rsa_neg,
                                   'contrast_neg_minus_pos': rsa_neg - rsa_pos,
-                                  'n_positive_pairs': n_pos_pairs, 'n_negative_pairs': n_neg_pairs})
+                                  'contrast_neg_minus_neu': rsa_neg - rsa_neu,
+                                  'contrast_pos_minus_neu': rsa_pos - rsa_neu,
+                                  'n_positive_pairs': n_pos_pairs, 'n_neutral_pairs': n_neu_pairs,
+                                  'n_negative_pairs': n_neg_pairs})
 
 coherence_df = pd.DataFrame(coherence_results)
 split_rsa_df = pd.DataFrame(split_rsa_results)
 coherence_df.to_csv(os.path.join(DATA_OUTPUT_DIR, 'A_neural_coherence_results.csv'), index=False)
 split_rsa_df.to_csv(os.path.join(DATA_OUTPUT_DIR, 'C_valence_split_rsa_results.csv'), index=False)
 
-# Group-level tests (Wilcoxon + FDR), matching the primary analysis' second-level test
-coherence_group = group_wilcoxon(coherence_df, 'contrast_neg_minus_pos')
-split_rsa_group = group_wilcoxon(split_rsa_df, 'contrast_neg_minus_pos')
-coherence_group.to_csv(os.path.join(DATA_OUTPUT_DIR, 'A_neural_coherence_group_stats.csv'), index=False)
-split_rsa_group.to_csv(os.path.join(DATA_OUTPUT_DIR, 'C_valence_split_rsa_group_stats.csv'), index=False)
-
-plot_contrast(coherence_group,
-              'A: Neural within-category coherence (negative - positive)',
-              'Coherence contrast (neg - pos), median', 'A_neural_coherence.png')
-plot_contrast(split_rsa_group,
-              f'C: Valence-split Neural-{LLM_NAME} RSA (negative - positive)',
-              'RSA contrast (neg - pos), median', 'C_valence_split_rsa.png')
+# Group-level tests (Wilcoxon + FDR) for all three pairwise contrasts
+for contrast_col, label, fname_a, fname_c in [
+    ('contrast_neg_minus_pos', 'negative − positive',
+     'A_neural_coherence_neg_vs_pos.png', 'C_valence_split_rsa_neg_vs_pos.png'),
+    ('contrast_neg_minus_neu', 'negative − neutral',
+     'A_neural_coherence_neg_vs_neu.png', 'C_valence_split_rsa_neg_vs_neu.png'),
+    ('contrast_pos_minus_neu', 'positive − neutral',
+     'A_neural_coherence_pos_vs_neu.png', 'C_valence_split_rsa_pos_vs_neu.png'),
+]:
+    coh_group  = group_wilcoxon(coherence_df, contrast_col)
+    srsa_group = group_wilcoxon(split_rsa_df, contrast_col)
+    coh_group.to_csv(os.path.join(DATA_OUTPUT_DIR,  fname_a.replace('.png', '.csv')), index=False)
+    srsa_group.to_csv(os.path.join(DATA_OUTPUT_DIR, fname_c.replace('.png', '.csv')), index=False)
+    plot_contrast(coh_group,
+                  f'A: Neural within-category coherence ({label})',
+                  f'Coherence contrast ({label}), median', fname_a)
+    plot_contrast(srsa_group,
+                  f'C: Valence-split Neural-{LLM_NAME} RSA ({label})',
+                  f'RSA contrast ({label}), median', fname_c)
 
 # --- B (model coherence), single matrix, label-permutation test ---
 obs_within_pos = within_group_mean(llm_matrix, pos_idx)
+obs_within_neu = within_group_mean(llm_matrix, neu_idx)
 obs_within_neg = within_group_mean(llm_matrix, neg_idx)
-obs_contrast = obs_within_neg - obs_within_pos
+obs_neg_pos = obs_within_neg - obs_within_pos
+obs_neg_neu = obs_within_neg - obs_within_neu
+obs_pos_neu = obs_within_pos - obs_within_neu
 
-n_pos = len(pos_idx)
-null_contrasts = []
+n_pos, n_neu = len(pos_idx), len(neu_idx)
+null_neg_pos, null_neg_neu, null_pos_neu = [], [], []
 for _ in tqdm(range(N_LABEL_PERMUTATIONS), desc=f"B label-permutation ({LLM_NAME})"):
-    perm = np.random.permutation(n_words)
-    perm_pos, perm_neg = perm[:n_pos], perm[n_pos:]
-    null_contrasts.append(within_group_mean(llm_matrix, perm_neg) - within_group_mean(llm_matrix, perm_pos))
-null_contrasts = np.array(null_contrasts)
-p_two_sided = np.mean(np.abs(null_contrasts) >= np.abs(obs_contrast))
+    perm  = np.random.permutation(n_words)
+    p_pos = perm[:n_pos]
+    p_neu = perm[n_pos:n_pos + n_neu]
+    p_neg = perm[n_pos + n_neu:]
+    w_pos = within_group_mean(llm_matrix, p_pos)
+    w_neu = within_group_mean(llm_matrix, p_neu)
+    w_neg = within_group_mean(llm_matrix, p_neg)
+    null_neg_pos.append(w_neg - w_pos)
+    null_neg_neu.append(w_neg - w_neu)
+    null_pos_neu.append(w_pos - w_neu)
+
+null_neg_pos = np.array(null_neg_pos)
+null_neg_neu = np.array(null_neg_neu)
+null_pos_neu = np.array(null_pos_neu)
+p_neg_pos = np.mean(np.abs(null_neg_pos) >= np.abs(obs_neg_pos))
+p_neg_neu = np.mean(np.abs(null_neg_neu) >= np.abs(obs_neg_neu))
+p_pos_neu = np.mean(np.abs(null_pos_neu) >= np.abs(obs_pos_neu))
 
 bert_coherence = pd.DataFrame([{
     'model': LLM_NAME,
-    'within_positive': obs_within_pos,
-    'within_negative': obs_within_neg,
-    'contrast_neg_minus_pos': obs_contrast,
-    'direction': 'negative more coherent' if obs_contrast > 0 else 'positive more coherent',
-    'p_value_label_perm_two_sided': p_two_sided,
+    'within_positive': obs_within_pos, 'within_neutral': obs_within_neu, 'within_negative': obs_within_neg,
+    'contrast_neg_minus_pos': obs_neg_pos, 'p_neg_vs_pos_two_sided': p_neg_pos,
+    'contrast_neg_minus_neu': obs_neg_neu, 'p_neg_vs_neu_two_sided': p_neg_neu,
+    'contrast_pos_minus_neu': obs_pos_neu, 'p_pos_vs_neu_two_sided': p_pos_neu,
     'n_label_permutations': N_LABEL_PERMUTATIONS
 }])
 bert_coherence.to_csv(os.path.join(DATA_OUTPUT_DIR, f'B_model_coherence_{LLM_NAME}.csv'), index=False)
-print(f"\nB ({LLM_NAME}) within-category coherence contrast (neg - pos): {obs_contrast:.4f}, "
-      f"two-sided label-permutation p = {p_two_sided:.4f}")
+print(f"\nB ({LLM_NAME}) within-category coherence contrasts (label-permutation two-sided p):")
+print(f"  neg − pos: {obs_neg_pos:.4f}  (p = {p_neg_pos:.4f})")
+print(f"  neg − neu: {obs_neg_neu:.4f}  (p = {p_neg_neu:.4f})")
+print(f"  pos − neu: {obs_pos_neu:.4f}  (p = {p_pos_neu:.4f})")
 
-# Plot the label-permutation null with the observed contrast
-plt.figure(figsize=(8, 6))
-sns.histplot(null_contrasts, bins=40, kde=True)
-plt.axvline(obs_contrast, color='red', linestyle='--', label='Observed (neg - pos)')
-plt.title(f'B: {LLM_NAME} within-category coherence (label-permutation null)')
-plt.xlabel('Coherence contrast (neg - pos)')
-plt.ylabel('Frequency')
-plt.legend()
-plt.tight_layout()
-plt.savefig(os.path.join(VISUAL_OUTPUT_DIR, f'B_model_coherence_{LLM_NAME}.png'), dpi=300)
-plt.close()
+for null_arr, obs_val, label, fname in [
+    (null_neg_pos, obs_neg_pos, 'neg − pos', f'B_model_coherence_{LLM_NAME}_neg_vs_pos.png'),
+    (null_neg_neu, obs_neg_neu, 'neg − neu', f'B_model_coherence_{LLM_NAME}_neg_vs_neu.png'),
+    (null_pos_neu, obs_pos_neu, 'pos − neu', f'B_model_coherence_{LLM_NAME}_pos_vs_neu.png'),
+]:
+    plt.figure(figsize=(8, 6))
+    sns.histplot(null_arr, bins=40, kde=True)
+    plt.axvline(obs_val, color='red', linestyle='--', label=f'Observed ({label})')
+    plt.title(f'B: {LLM_NAME} within-category coherence ({label})')
+    plt.xlabel(f'Coherence contrast ({label})')
+    plt.ylabel('Frequency')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(VISUAL_OUTPUT_DIR, fname), dpi=300)
+    plt.close()
 
 print("All analyses complete. Results saved to output directory.")
