@@ -22,7 +22,7 @@ from nltools.data import Adjacency
 #####################################################################
 LLM_NAME = 'BERT'  # which LLM embeddings to use: 'BERT', 'ERNIE', 'Electra', or 'GPT2'
 
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
 BIDS_DIR = PROJECT_ROOT / "data" / "ds004301"
 ANNOTATIONS_DIR = BIDS_DIR / "derivatives" / "annotations"
 EMBEDDINGS_PATH = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings" / f"{LLM_NAME}.mat"  # 672 embeddings for the chosen LLM
@@ -83,5 +83,6 @@ adjacency = Adjacency(similarity_matrix, labels=english_labels)
 np.savez_compressed(
     os.path.join(OUT_DIR, f'{LLM_NAME}_similarity_matrix_adj.npz'),
     data=adjacency.data,
-    labels=np.array(adjacency.labels, dtype=object)
+    labels=np.array(adjacency.labels, dtype=object),
+    labels_cn=np.array(labels, dtype=object)
 )

@@ -75,16 +75,14 @@ os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 llm_matrix_file = np.load(LLM_SIM_FILE, allow_pickle=True)
 # Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
 llm_matrix = distance.squareform(llm_matrix_file['data'])
-llm_labels = llm_matrix_file['labels']
+labels_cn = np.array([str(l) for l in llm_matrix_file['labels_cn']])
 
 emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-# Build per-label arrays via dict lookup instead of .loc[llm_labels], which would
-# expand duplicated labels (some English translations cover multiple Chinese words).
-_pos_map = dict(zip(emotion_df['word'], emotion_df['positivity']))
-_neg_map = dict(zip(emotion_df['word'], emotion_df['negativity']))
-llm_labels_str = [str(l) for l in llm_labels]
-pos_scores = np.array([_pos_map[l] for l in llm_labels_str])
-neg_scores = np.array([_neg_map[l] for l in llm_labels_str])
+# Align ratings to matrix rows via the unique Chinese key, avoiding the lossy English join.
+aligned = emotion_df.set_index('word_cn').loc[labels_cn]
+pos_scores = aligned['positivity'].values
+neg_scores = aligned['negativity'].values
+assert len(pos_scores) == llm_matrix.shape[0] == 672
 n_words = len(pos_scores)  # exactly 672
 
 ########################################################################
