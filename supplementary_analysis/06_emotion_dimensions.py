@@ -20,7 +20,7 @@ import pandas as pd
 ######################################################################
 # Configuration
 ######################################################################
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
 DATA_DIR = PROJECT_ROOT / "data"
 BIDS_DIR = DATA_DIR / "ds004301"
 RATINGS_FILE_PATH = BIDS_DIR / "derivatives" / "annotations" / "semantic feature" / "feature.csv"
@@ -58,6 +58,7 @@ print(word_ratings.head())  # Check the computed ratings
 ######################################################################
 translations_df = pd.read_csv(TRANSLATIONS_FILE_PATH, header=None, encoding="utf-8-sig")
 translations_dict = dict(zip(translations_df.iloc[:, 0], translations_df.iloc[:, 1]))  # Create a dictionary for translation
+word_ratings['word_cn'] = word_ratings['word']   # preserve Chinese key before translation
 word_ratings['word'] = word_ratings['word'].map(translations_dict)
 
 print(word_ratings.head())  # Check the translated words
@@ -66,4 +67,4 @@ print(word_ratings.head())  # Check the translated words
 # Save the ratings to a CSV file for later use in RSA analyses
 ######################################################################
 output_file = os.path.join(OUT_DIR, 'word_ratings.csv')
-word_ratings.to_csv(output_file, index=False)
+word_ratings[['word_cn', 'word', 'positivity', 'negativity']].to_csv(output_file, index=False)
