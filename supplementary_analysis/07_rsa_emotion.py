@@ -48,11 +48,11 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 # Configuration
 ########################################################################
-LLM_NAME = 'BERT'  # Change to your LLM of interest (BERT, ERNIE, Electra, GPT2)
+LLM_NAME = 'GPT2'  # Change to your LLM of interest (BERT, ERNIE, Electra, GPT2)
 
-PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
+PROJECT_ROOT = Path("/home/f_moldovan/projects/case_studies")  # the only path you need to set
 DATA_DIR = PROJECT_ROOT / "data"
-BIDS_DIR = DATA_DIR / "ds004301"
+BIDS_DIR = DATA_DIR / "bids"
 DERIVATIVES_DIR = BIDS_DIR / "derivatives"
 ANNOTATIONS_DIR = DERIVATIVES_DIR / "annotations"
 NEURAL_SIM_DIR = DERIVATIVES_DIR / "similarity_matrices"
@@ -75,17 +75,16 @@ os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 llm_matrix_file = np.load(LLM_SIM_FILE, allow_pickle=True)
 # Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
 llm_matrix = distance.squareform(llm_matrix_file['data'])
+
 llm_labels = llm_matrix_file['labels']
 
 emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-# Build per-label arrays via dict lookup instead of .loc[llm_labels], which would
-# expand duplicated labels (some English translations cover multiple Chinese words).
-_pos_map = dict(zip(emotion_df['word'], emotion_df['positivity']))
-_neg_map = dict(zip(emotion_df['word'], emotion_df['negativity']))
-llm_labels_str = [str(l) for l in llm_labels]
-pos_scores = np.array([_pos_map[l] for l in llm_labels_str])
-neg_scores = np.array([_neg_map[l] for l in llm_labels_str])
-n_words = len(pos_scores)  # exactly 672
+print(llm_labels == emotion_df['word'].values)  # Check if the order of words matches (alignment or not) -> it does
+
+# Get the two independent emotion dimensions
+pos_scores = emotion_df['positivity'].values
+neg_scores = emotion_df['negativity'].values
+n_words = len(pos_scores)  # exactly 672 words
 
 ########################################################################
 # Create Continuous Pairwise Intensity Matrices

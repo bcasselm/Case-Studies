@@ -59,12 +59,13 @@ np.random.seed(42)  # For reproducibility of bootstrapped confidence intervals
 def load_and_prepare_data(llm_sim_file, emotion_ratings_file):
     """Loads similarity matrix and emotion ratings, returning aligned structures."""
     llm_matrix_file = np.load(llm_sim_file, allow_pickle=True)
+
     # Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
     llm_matrix = distance.squareform(llm_matrix_file['data'])
     llm_labels = llm_matrix_file['labels']
 
     emotion_df = pd.read_csv(emotion_ratings_file)
-    emotion_df = emotion_df.set_index('word').loc[llm_labels].reset_index()
+    print(llm_labels == emotion_df['word'].values)  # Check if the order of words matches (alignment or not) -> it does
 
     # Get the two independent emotion dimensions
     pos_scores = emotion_df['positivity'].values

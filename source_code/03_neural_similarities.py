@@ -32,7 +32,7 @@ MASK_PATH = os.path.join(BASE_DIR, 'data', 'brain_parcellations', 'emotion_parce
 OUT_DIR = os.path.join(BIDS_DIR, 'derivatives', 'similarity_matrices') # Directory where we will save the computed similarity matrices for each subject and ROI.
 FIG_DIR = os.path.join(BASE_DIR, 'reports', 'figures', 'examples') # Directory to save example figures of ROI masks.
 PLOT_DIR = os.path.join(BASE_DIR, 'reports', 'plots', 'examples') # Directory to save example plots of similarity matrices.
-EXAMPLE_ROI = 20 # We will visualize the similarity matrix and actual mask for this ROI as an example. You can change this to visualize different ROIs.
+EXAMPLE_ROI = 28 # We will visualize the similarity matrix and actual mask for this ROI as an example. You can change this to visualize different ROIs.
 
 #####################################################################
 # Helper functions
