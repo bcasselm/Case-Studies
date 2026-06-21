@@ -68,11 +68,16 @@ def compute_similarity_matrix(embeddings_data, llm_name):
 def plot_and_save_matrix(similarity_matrix, english_labels, llm_name, plots_dir):
     """Visualizes and saves the similarity matrix as a PNG file."""
     os.makedirs(plots_dir, exist_ok=True)
-    plotting.plot_matrix(similarity_matrix, 
+    im = plotting.plot_matrix(similarity_matrix, 
                          labels=english_labels, 
                          colorbar=True, 
-                         title=f'{llm_name} Contextual Word Embeddings Similarity Matrix (cosine similarity)',
+                         title='',
                          cmap='viridis')  # Diverging colormap to show positive and negative similarities
+    
+    ax = im.axes
+
+    ax.set_xticklabels(labels=english_labels, rotation=90)
+    ax.set_yticklabels(labels=english_labels, rotation=0)
     plt.savefig(os.path.join(plots_dir, f'{llm_name}_similarity_matrix.png'), dpi=300, bbox_inches='tight')
 
 def save_adjacency_matrix(similarity_matrix, english_labels, llm_name, out_dir):
