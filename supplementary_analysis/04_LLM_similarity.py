@@ -22,13 +22,14 @@ from nltools.data import Adjacency
 #####################################################################
 LLM_NAME = 'BERT'  # which LLM embeddings to use: 'BERT', 'ERNIE', 'Electra', or 'GPT2'
 
-PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
+
 BIDS_DIR = PROJECT_ROOT / "data" / "ds004301"
 ANNOTATIONS_DIR = BIDS_DIR / "derivatives" / "annotations"
-EMBEDDINGS_PATH = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings" / f"{LLM_NAME}.mat"  # 672 embeddings for the chosen LLM
-TRANSLATIONS_FILE_PATH = ANNOTATIONS_DIR / "672words_translations.csv"  # maps Chinese words to their English translations
-OUT_DIR = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings"  # where the similarity matrix is saved
-PLOTS_DIR = PROJECT_ROOT / "reports" / "plots" / "embedding_sim_matrix"  # where the plot is saved
+EMBEDDINGS_PATH = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings" / f"{LLM_NAME}.mat"     # 672 embeddings for the chosen LLM
+TRANSLATIONS_FILE_PATH = ANNOTATIONS_DIR / "672words_translations.csv"                                  # maps Chinese words to their English translations
+OUT_DIR = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings"                                 # where the similarity matrix is saved
+PLOTS_DIR = PROJECT_ROOT / "reports" / "plots" / "embedding_sim_matrix"                                 # where the plot is saved
 
 os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(PLOTS_DIR, exist_ok=True)
@@ -38,12 +39,12 @@ os.makedirs(PLOTS_DIR, exist_ok=True)
 #####################################################################
 embeddings = scipy.io.loadmat(str(EMBEDDINGS_PATH))
 print("LLM embeddings keys:", embeddings.keys())
-print(embeddings['data'].shape)  # Should be (672, 769): 768 embedding dims + first column with word labels
+print(embeddings['data'].shape)
 
 labels = np.squeeze(embeddings['data'][:, 0])                       # word labels (first column)
-labels = np.vectorize(lambda x: str(np.squeeze(x)))(labels)        # convert from 1x1 cell arrays to strings
+labels = np.vectorize(lambda x: str(np.squeeze(x)))(labels)         # convert from 1x1 cell arrays to strings
 print("Sample word labels (Chinese):", labels[:10])
-data = np.asarray(embeddings['data'][:, 1:])                       # embeddings (ignore first column)
+data = np.asarray(embeddings['data'][:, 1:])                        # embeddings (ignore first column)
 
 # Translate the word labels from Chinese to English
 translations = pd.read_csv(TRANSLATIONS_FILE_PATH, header=None, encoding="utf-8-sig")

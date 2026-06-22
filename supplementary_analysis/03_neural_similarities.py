@@ -25,7 +25,8 @@ import nibabel as nib
 #####################################################################
 # Configuration
 #####################################################################
-PROJECT_ROOT = Path("/Volumes/T9/Birgit")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
+
 DATA_DIR = PROJECT_ROOT / "data"
 BIDS_DIR = DATA_DIR / "ds004301"
 ANNOTATIONS_DIR = BIDS_DIR / "derivatives" / "annotations"
@@ -42,7 +43,6 @@ os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(FIG_DIR, exist_ok=True)
 os.makedirs(PLOT_DIR, exist_ok=True)
 
-# Subjects (ds004301 has 11 participants; hardcoded to avoid indexing this large dataset with pybids)
 SUBJECTS = [f"{i:02d}" for i in range(1, 12)]
 
 #####################################################################
@@ -58,7 +58,7 @@ for sub in SUBJECTS:
     )
     file_lists.append(file_list)
 
-# Extract condition names (word labels) from filenames of the first subject (same conditions/order for all subjects)
+# Extract condition names (word labels) from filenames of the first subject
 file_list = file_lists[0]
 conditions = [os.path.basename(x).split("_")[1].split(".")[0] for x in file_list]
 
@@ -113,8 +113,8 @@ for sub in tqdm(SUBJECTS, desc="Processing subjects"):
         if roi_id == 0:
             continue  # skip background
 
-        roi_mask = parcel_labels == roi_id        # boolean index, same space as beta_data
-        roi_data = beta_data[:, roi_mask]          # (n_conditions, n_roi_voxels)
+        roi_mask = parcel_labels == roi_id        
+        roi_data = beta_data[:, roi_mask]         
 
         dist_matrix = pairwise_distances(roi_data, metric='correlation')
         similarity = 1 - dist_matrix
@@ -128,7 +128,7 @@ for sub in tqdm(SUBJECTS, desc="Processing subjects"):
     # Save the similarity matrices for this subject to disk
     output_dir = os.path.join(OUT_DIR, f'sub-{sub}')
     os.makedirs(output_dir, exist_ok=True)
-    # Convert Adjacency objects to plain 2D numpy arrays before saving (data can be 1D condensed or 2D square)
+    # Convert Adjacency objects to plain 2D numpy arrays before saving
     arrays = []
     for adj in similarity_matrices_rois:
         data = getattr(adj, 'data', adj)

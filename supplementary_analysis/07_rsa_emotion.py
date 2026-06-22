@@ -23,7 +23,7 @@ positive, neutral, and negative groups based on a difference-score threshold δ
    B.  The same within-category coherence measure computed on the single LLM similarity matrix. Because there is only one
        LLM matrix (no subjects to aggregate over), significance is assessed via label-permutation: group labels are shuffled
        10,000 times and all three pairwise contrasts are tested against the resulting null distributions.
-   C.  Valence-split RSA: for each subject and ROI, the neural-LLM Spearman correlation is computed separately within each
+   C.  Valence-specific RSA: for each subject and ROI, the neural-LLM Spearman correlation is computed separately within each
        valence group (restricted to word pairs where both words share the same valence category). All three pairwise contrasts
        (neg−pos, neg−neu, pos−neu) are tested with a Wilcoxon signed-rank test across subjects per ROI, with BH-FDR correction.
 '''
@@ -48,11 +48,12 @@ from statsmodels.stats.multitest import multipletests
 ########################################################################
 # Configuration
 ########################################################################
-LLM_NAME = 'GPT2'  # Change to your LLM of interest (BERT, ERNIE, Electra, GPT2)
+LLM_NAME = 'BERT'  # Change to your LLM of interest (BERT, ERNIE, Electra, GPT2)
 
-PROJECT_ROOT = Path("/home/f_moldovan/projects/case_studies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
+
 DATA_DIR = PROJECT_ROOT / "data"
-BIDS_DIR = DATA_DIR / "bids"
+BIDS_DIR = DATA_DIR / "ds004301"
 DERIVATIVES_DIR = BIDS_DIR / "derivatives"
 ANNOTATIONS_DIR = DERIVATIVES_DIR / "annotations"
 NEURAL_SIM_DIR = DERIVATIVES_DIR / "similarity_matrices"
@@ -60,10 +61,10 @@ DATA_OUTPUT_DIR = DATA_DIR / "rsa_results" / LLM_NAME
 VISUAL_OUTPUT_DIR = PROJECT_ROOT / "reports" / "plots" / "rsa_results" / LLM_NAME
 
 LLM_SIM_FILE = ANNOTATIONS_DIR / "embeddings" / "contextual word embeddings" / f"{LLM_NAME}_similarity_matrix_adj.npz"
-EMOTION_RATINGS_FILE = DATA_DIR / "emotion_ratings" / "word_ratings.csv"  # Must contain 'word', 'positivity', 'negativity'
+EMOTION_RATINGS_FILE = DATA_DIR / "emotion_ratings" / "word_ratings.csv"
 
 N_LABEL_PERMUTATIONS = 10000  # for the B label-permutation test
-np.random.seed(42)            # for reproducibility of the label-permutation null
+np.random.seed(42)            
 VALENCE_THRESHOLD = 1.0       # δ: minimum |positivity - negativity| to assign a word to a valence pole
 
 os.makedirs(DATA_OUTPUT_DIR, exist_ok=True)
@@ -73,18 +74,16 @@ os.makedirs(VISUAL_OUTPUT_DIR, exist_ok=True)
 # Data loading
 ########################################################################
 llm_matrix_file = np.load(LLM_SIM_FILE, allow_pickle=True)
-# Assuming LLM_SIM_FILE actually contains a similarity matrix, not dissimilarity
 llm_matrix = distance.squareform(llm_matrix_file['data'])
-
-llm_labels = llm_matrix_file['labels']
+labels_cn = np.array([str(l) for l in llm_matrix_file['labels_cn']])
 
 emotion_df = pd.read_csv(EMOTION_RATINGS_FILE)
-print(llm_labels == emotion_df['word'].values)  # Check if the order of words matches (alignment or not) -> it does
-
-# Get the two independent emotion dimensions
-pos_scores = emotion_df['positivity'].values
-neg_scores = emotion_df['negativity'].values
-n_words = len(pos_scores)  # exactly 672 words
+# Align ratings to matrix rows via the unique Chinese key
+aligned = emotion_df.set_index('word_cn').loc[labels_cn]
+pos_scores = aligned['positivity'].values
+neg_scores = aligned['negativity'].values
+assert len(pos_scores) == llm_matrix.shape[0] == 672
+n_words = len(pos_scores)
 
 ########################################################################
 # Create Continuous Pairwise Intensity Matrices
@@ -364,7 +363,7 @@ def plot_contrast(group_df, title, ylabel, fname):
 # --- A (neural coherence) and C (valence-split RSA), per subject and ROI ---
 coherence_results = []
 split_rsa_results = []
-for file in tqdm(neural_sim_files, desc="Computing valence coherence and split RSA"):
+for file in tqdm(neural_sim_files, desc="Computing valence coherence and valence-specific RSA"):
     subject_id = os.path.basename(os.path.dirname(file)).replace('sub-', '')
     data = np.load(file, allow_pickle=True)
 
@@ -380,7 +379,7 @@ for file in tqdm(neural_sim_files, desc="Computing valence coherence and split R
                                   'contrast_neg_minus_neu': within_neg - within_neu,
                                   'contrast_pos_minus_neu': within_pos - within_neu})
 
-        # C: valence-split RSA (all three pairwise contrasts)
+        # C: valence-specific RSA (all three pairwise contrasts)
         rsa_pos, n_pos_pairs = split_rsa(neural_matrix, llm_matrix, pos_idx)
         rsa_neu, n_neu_pairs = split_rsa(neural_matrix, llm_matrix, neu_idx)
         rsa_neg, n_neg_pairs = split_rsa(neural_matrix, llm_matrix, neg_idx)
