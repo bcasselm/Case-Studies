@@ -4,18 +4,6 @@ Single-trial betas are estimated with Least-Squares-Separate (LSS; Mumford et al
 one GLM per trial, with the target trial modelled on its own and all other trials collapsed
 into a single regressor. The single-trial betas of each word are then averaged into one
 beta map per word.
-
-Assumptions
------------
-- Data is organised in BIDS format and preprocessed with fMRIPrep.
-- Each run has an events file with at least columns: onset, duration, stim_file.
-- stim_file contains the word label.
-- Confounds come from fMRIPrep's *_desc-confounds.tsv files.
-
-Outputs
--------
-betas/<sub>/trials/run<RR>_trial<TTT>_<word>.nii.gz  – single-trial betas
-betas/<sub>/beta_<word>.nii.gz                       – one beta per word (averaged over repetitions)
 """
 
 #####################################################################
@@ -29,6 +17,7 @@ import re
 import shutil
 from pathlib import Path
 from tqdm import tqdm
+from joblib import Parallel, delayed
 from nilearn import plotting, image
 import pandas as pd
 from nilearn.glm.first_level import FirstLevelModel
@@ -37,7 +26,8 @@ import nibabel as nib
 #####################################################################
 # Configuration
 #####################################################################
-PROJECT_ROOT   = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT   = Path("/Volumes/T9/Birgit")
+
 DATA_DIR       = PROJECT_ROOT / "data"
 BIDS_DIR       = DATA_DIR / "ds004301"
 FMRIPREP_DIR   = BIDS_DIR / "derivatives" / "preprocessed_data"
@@ -48,22 +38,21 @@ MASK_PATH      = DATA_DIR / "brain_parcellations" / "emotion_parcellation_rsa_un
 T_R            = 2.0          # repetition time in seconds (ds004301; Wang et al. 2022)
 SLICE_TIME_REF = 0.5          # reference slice for slice-timing (fraction of TR)
 HRF_MODEL      = "glover"     # canonical HRF ('spm' is equivalent for RSA)
-DRIFT_MODEL    = "cosine"     # high-pass filtering via discrete cosines (the only high-pass applied)
-HIGH_PASS      = 1/128        # Hz (128 s period, SPM default)
+DRIFT_MODEL    = None         # high-pass handled via cosine regressors in the confounds TSV
+HIGH_PASS      = None
 SMOOTHING_FWHM = None         # mm; None = no smoothing, to preserve multivariate patterns
 NOISE_MODEL    = "ar1"        # AR(1) prewhitening for temporal autocorrelation
 SIGNAL_SCALING = 0            # 0 = percent signal change
 MAX_RUNS       = 0            # 0 = use all runs, >0 = use first N runs
 
-# Which fMRIPrep confounds to include (high-pass cosines are excluded; handled by DRIFT_MODEL)
-CONFOUND_STRATEGY = ("motion", "compcor", "spikes")
+# Which fMRIPrep confounds to include
+CONFOUND_STRATEGY = ("motion", "compcor", "cosines", "spikes")
 MOTION_PARAMS     = "full"    # 'basic'=6, 'full'=24
 N_COMPCOR         = 6         # number of leading aCompCor components
 
 # Memory/performance controls
-N_JOBS           = 1
+N_JOBS           = 4          # parallel LSS fits within a run (joblib); set to 1 to disable
 MINIMIZE_MEMORY  = True
-RESAMPLE_TO_MASK = True       # resample data to mask space/affine (2mm) during GLM fitting (saves memory)
 
 # List of subjects to process (get_run_files prepends 'sub-', as in the main pipeline)
 SUBJECTS = [f"{i:02d}" for i in range(1, 12)]
@@ -111,6 +100,9 @@ def get_run_files(subject: str):
         if "compcor" in CONFOUND_STRATEGY:
             selected.extend(sorted(c for c in confounds_df.columns if c.startswith("a_comp_cor_"))[:N_COMPCOR])
 
+        if "cosines" in CONFOUND_STRATEGY:
+            selected.extend([c for c in confounds_df.columns if c.startswith("cosine")])
+
         if "spikes" in CONFOUND_STRATEGY:
             selected.extend([c for c in confounds_df.columns
                              if c.startswith("motion_outlier") or c.startswith("non_steady_state_outlier")])
@@ -147,7 +139,11 @@ def get_run_files(subject: str):
         confounds_path = bold.with_name(bold.name.replace("_bold.nii.gz", "_desc-confounds.tsv"))
         if not confounds_path.exists():
             raise FileNotFoundError(f"Confounds file not found: {confounds_path}")
-        confounds = _select_confounds(pd.read_csv(confounds_path, sep="\t"))
+        confounds_raw = pd.read_csv(confounds_path, sep="\t")
+        n_scans = nib.load(str(bold)).shape[3]
+        if len(confounds_raw) > n_scans:
+            confounds_raw = confounds_raw.iloc[-n_scans:].reset_index(drop=True)
+        confounds = _select_confounds(confounds_raw)
 
         imgs.append(str(bold))
         events_list.append(events)
@@ -167,9 +163,12 @@ def make_lss_events(events: pd.DataFrame, target_trial: int) -> pd.DataFrame:
     return lss
 
 
-def make_model(target_affine, target_shape) -> FirstLevelModel:
+def make_model(mask_img) -> FirstLevelModel:
     """
-    A fresh single-trial GLM, configured once and instantiated per trial.
+    A fresh single-trial GLM.  The caller pre-resamples the 3-D parcellation
+    mask to BOLD native space (cheap, nearest-neighbour) and passes it here so
+    nilearn never touches the 4-D BOLD data.  N_JOBS=1 because parallelism is
+    handled at the trial level by joblib in fit_first_level.
     """
     return FirstLevelModel(
         t_r=T_R,
@@ -178,16 +177,45 @@ def make_model(target_affine, target_shape) -> FirstLevelModel:
         drift_model=DRIFT_MODEL,
         high_pass=HIGH_PASS,
         smoothing_fwhm=SMOOTHING_FWHM,
-        mask_img=str(MASK_PATH),
+        mask_img=mask_img,
         noise_model=NOISE_MODEL,
         standardize=False,
         signal_scaling=SIGNAL_SCALING,
         minimize_memory=MINIMIZE_MEMORY,
-        n_jobs=N_JOBS,
-        target_affine=target_affine,
-        target_shape=target_shape,
+        n_jobs=1,
         verbose=0,
     )
+
+
+def _fit_one_trial(bold_img, mask_img, events, confounds, trial, trial_path,
+                   run_idx, subject):
+    """Fit a single LSS trial and save the beta map. Returns trial_path."""
+    import numpy as np
+    model = make_model(mask_img)
+    try:
+        model.fit(
+            run_imgs=bold_img,
+            events=make_lss_events(events, trial),
+            confounds=confounds,
+        )
+    except np.linalg.LinAlgError as e:
+        print(f"  WARNING: SVD/LinAlg failure on sub-{subject} run{run_idx} trial{trial} — skipping ({e})")
+        return None
+    beta_img = model.compute_contrast(
+        contrast_def="trial",
+        stat_type="t",
+        output_type="effect_size",
+    )
+    nib.save(beta_img, trial_path)
+
+    if run_idx == 0 and trial == 0:
+        dm_dir = Path("/Volumes/T9/Birgit") / "reports" / "plots" / "design_matrix"
+        dm_dir.mkdir(parents=True, exist_ok=True)
+        plotting.plot_design_matrix(
+            model.design_matrices_[0],
+            output_file=str(dm_dir / f"example_lss_design_matrix_sub-{subject}.png"),
+        )
+    return trial_path
 
 
 def fit_first_level(subject: str):
@@ -202,52 +230,89 @@ def fit_first_level(subject: str):
     imgs, events_list, confounds_list = None, None, None
     model = None
     try:
+        out_sub = OUT_DIR / f"sub-{subject}"
+        existing_betas = list(out_sub.glob("beta_*.nii.gz"))
+        if existing_betas and not (out_sub / "trials").exists():
+            conditions = sorted(f.stem.replace("beta_", "") for f in existing_betas)
+            print(f"  Already complete ({len(conditions)} beta maps) — skipping")
+            return conditions
+
         imgs, events_list, confounds_list = get_run_files(subject)
         print(f"  Found {len(imgs)} runs")
 
         if not MASK_PATH.exists():
             raise FileNotFoundError(f"Mask file not found: {MASK_PATH}")
-        mask_img = nib.load(str(MASK_PATH))
-        target_affine = mask_img.affine if RESAMPLE_TO_MASK else None
-        target_shape = mask_img.shape[:3] if RESAMPLE_TO_MASK else None
 
-        out_sub = OUT_DIR / f"sub-{subject}"
         trials_dir = out_sub / "trials"
         trials_dir.mkdir(parents=True, exist_ok=True)
 
         # Fit every trial of every run; group the single-trial beta paths by word.
+        # If a trial beta already exists on disk, skip refitting it.
+        # The 4-D BOLD is never resampled.  Instead, the 3-D parcellation mask is
+        # resampled (nearest-neighbour, once per run) to the BOLD's native grid
+        # and passed to every trial's GLM.
         word_files = {}
+        skipped = 0
         for run_idx, (img, events, confounds) in enumerate(zip(imgs, events_list, confounds_list)):
-            bold = nib.load(img)
+
+            # Determine which trials still need fitting
+            pending = []
             for trial in range(len(events)):
                 word = str(events["trial_type"].iloc[trial])
-                model = make_model(target_affine, target_shape)
-                model.fit(run_imgs=bold, events=make_lss_events(events, trial), confounds=confounds)
-                beta_img = model.compute_contrast(
-                    contrast_def="trial",
-                    stat_type="t",
-                    output_type="effect_size",   # raw beta (more natural for RSA)
-                )
                 trial_path = trials_dir / f"run{run_idx:02d}_trial{trial:03d}_{word}.nii.gz"
-                nib.save(beta_img, trial_path)
                 word_files.setdefault(word, []).append(trial_path)
+                if trial_path.exists():
+                    skipped += 1
+                else:
+                    pending.append(trial)
 
-                # Save one example design matrix per subject (first run, first trial)
-                if run_idx == 0 and trial == 0:
-                    dm_dir = PROJECT_ROOT / "reports" / "plots" / "design_matrix"
-                    dm_dir.mkdir(parents=True, exist_ok=True)
-                    plotting.plot_design_matrix(
-                        model.design_matrices_[0],
-                        output_file=str(dm_dir / f"example_lss_design_matrix_sub-{subject}.png"),
+            if not pending:
+                continue  # entire run already done — skip entirely
+
+            # Lazy-load the BOLD (ArrayProxy — no data read yet) and resample
+            # the small 3-D mask to match it
+            bold_img = nib.load(img)
+            mask_resampled = image.resample_to_img(
+                str(MASK_PATH), bold_img, interpolation="nearest"
+            )
+
+            # Build (trial, trial_path) pairs for pending trials
+            pending_paths = [
+                (trial,
+                 trials_dir / f"run{run_idx:02d}_trial{trial:03d}_{str(events['trial_type'].iloc[trial])}.nii.gz")
+                for trial in pending
+            ]
+
+            # Fit pending trials — in parallel when N_JOBS > 1
+            if N_JOBS > 1:
+                Parallel(n_jobs=N_JOBS, prefer="processes")(
+                    delayed(_fit_one_trial)(
+                        bold_img, mask_resampled, events, confounds,
+                        trial, trial_path, run_idx, subject,
+                    )
+                    for trial, trial_path in pending_paths
+                )
+            else:
+                for trial, trial_path in pending_paths:
+                    _fit_one_trial(
+                        bold_img, mask_resampled, events, confounds,
+                        trial, trial_path, run_idx, subject,
                     )
 
-                del model, beta_img
-            del bold
+            del bold_img, mask_resampled
             gc.collect()
 
-        # Average the single-trial betas of each word into one beta per word
+        if skipped:
+            print(f"  Resumed: skipped {skipped} already-computed trial betas")
+
+        # Average the single-trial betas of each word into one beta per word.
+        # Filter out trial paths that were never written
         for word, files in word_files.items():
-            mean_beta = image.mean_img([str(f) for f in files], copy_header=True)
+            existing = [str(f) for f in files if f.exists()]
+            if not existing:
+                print(f"  WARNING: no trials saved for word '{word}' — skipping beta")
+                continue
+            mean_beta = image.mean_img(existing, copy_header=True)
             nib.save(mean_beta, out_sub / f"beta_{word}.nii.gz")
 
         # Remove the single-trial maps now that the per-word betas are written

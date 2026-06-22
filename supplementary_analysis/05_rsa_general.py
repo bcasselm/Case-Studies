@@ -27,9 +27,10 @@ from statsmodels.stats.multitest import multipletests
 #######################################################################
 # Configuration
 #######################################################################
-LLM_NAME = 'GPT2'  # which LLM similarity matrix to use: 'BERT', 'ERNIE', 'Electra', or 'GPT2'
+LLM_NAME = 'BERT'  # which LLM similarity matrix to use: 'BERT', 'ERNIE', 'Electra', or 'GPT2'
 
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")  # the only path you need to set
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
+
 DATA_DIR = PROJECT_ROOT / "data"
 BIDS_DIR = DATA_DIR / "ds004301"
 NEURAL_SIM_DIR = BIDS_DIR / "derivatives" / "similarity_matrices"  # neural similarity matrices (one .npz per subject)
@@ -43,7 +44,6 @@ np.random.seed(42)  # for reproducibility of the bootstrapping and permutation t
 #######################################################################
 # Data loading
 #######################################################################
-# Subjects (ds004301 has 11 participants; hardcoded to avoid indexing this large dataset with pybids)
 subs = [f"{i:02d}" for i in range(1, 12)]
 print("Subjects:", subs)
 
@@ -197,7 +197,7 @@ for roi in rsa_df['roi'].unique():
     observed_median = median_rsa_by_roi[roi]
     lower_ci = bootstrap_df[bootstrap_df['roi'] == roi]['lower_ci'].values[0]
     upper_ci = bootstrap_df[bootstrap_df['roi'] == roi]['upper_ci'].values[0]
-    permuted_medians = [np.median(roi_data * np.random.choice([-1, 1], size=len(roi_data))) for _ in range(n_permutations)]  # recompute this ROI's null
+    permuted_medians = [np.median(roi_data * np.random.choice([-1, 1], size=len(roi_data))) for _ in range(n_permutations)]
 
     # Plot the distribution of permuted medians
     plt.figure(figsize=(8, 6))

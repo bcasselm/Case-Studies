@@ -32,16 +32,15 @@ from nimare.correct import FWECorrector
 #####################################################################
 # Configuration
 #####################################################################
-# Single editable anchor: the folder that contains data/ and reports/.
-PROJECT_ROOT = Path("/Users/birgitcasselman/Documents/Psychology/Ma2/CaseStudies")
+PROJECT_ROOT = Path("/Volumes/T9/Birgit")
 
 DOWNLOAD_DIR = PROJECT_ROOT / "data" / "neurosynth"             # Directory to store/cache the Neurosynth LDA400 data (~1 GB first run)
-OUT_DIR = PROJECT_ROOT / "data" / "brain_parcellations"        # Directory to save individual and union parcellation masks (read back by script 02)
+OUT_DIR = PROJECT_ROOT / "data" / "brain_parcellations"         # Directory to save individual and union parcellation masks
 os.makedirs(OUT_DIR, exist_ok=True)
 VIS_DIR = PROJECT_ROOT / "reports" / "figures" / "brain_parcellation"  # Directory to save visualization of union parcellation
 os.makedirs(VIS_DIR, exist_ok=True)
 
-TARGET_TERMS = ["emotion", "representation", "word", "concept"] # Terms to match in topic features; we want topics that relate to both emotion and semantics/words, so we include terms from both domains. Adjust as needed to find relevant topics. Beware, following correlation distribution changes
+TARGET_TERMS = ["emotion", "representation", "word", "concept"] # Terms to match in topic features; we want topics that relate to both emotion and semantics/words, so we include terms from both domains.
 TOP_N_TOPICS = 9                                                # Number of top topics to use for meta-analysis (9 is in this case because below 9 the correlation drops below 0.2, but this can be adjusted based on the correlation distribution)
 TOPIC_WEIGHT_QUANTILE = 0.99                                    # Quantile threshold for selecting studies based on topic weights (top 1%)
 MIN_TOPIC_WEIGHT = 0.01                                         # Minimum absolute topic weight to include a study (to avoid including studies where the topic is barely present)
